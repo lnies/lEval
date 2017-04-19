@@ -162,37 +162,37 @@ def cal_tof(m_value, nrevs):
 
 def config_mag(add, f_mag, amp_mag, n_mag):
     #configure the function generator of the magnetron excitation
-    cs.call_process2(add,'SetFrequency', "I:1;D:1", pack_ch_val(1, f_mag, DOUBLE))
-    cs.call_process2(add,'SetAmplitude', "I:1;D:1", pack_ch_val(1, amp_mag, DOUBLE))
-    cs.call_process2(add,'SetBurstCycles', "I:1;D:1", pack_ch_val(1, n_mag, DOUBLE))
-    delay2 = pulse_length(f_mag,n_mag):
-    cs.call_process2(add,'SetTriggerDelay', "I:1;D:1", pack_ch_val(2, delay2, DOUBLE))
-    return true
+    print("I'm here 1!")
+    cs.call_process2(add,'SetChannelFrequency', "I:1;D:1", cs.pack_ch_val([1], [f_mag], cs.DOUBLE))
+    cs.call_process2(add,'SetChannelAmplitude', "I:1;D:1", cs.pack_ch_val([1], [amp_mag], cs.DOUBLE))
+    cs.call_process2(add,'SetBurstCycles', "I:1;I:1", cs.pack_ch_val([1], [n_mag], cs.INT))
+    delay2 = n_mag/f_mag
+    cs.call_process2(add,'SetTriggerDelay', "I:1;D:1", cs.pack_ch_val([2], [delay2], cs.DOUBLE))
 def config_cycl(add1,add2,addej,f_plus,amp_plus,n_plus,f_c,amp_c,n_c,n_acc):
     #configure the function generator of pattern 1
-    cs.call_process2(add1,'SetFrequency', "I:1;D:1", pack_ch_val(1, f_plus, DOUBLE))
-    cs.call_process2(add1,'SetAmplitude', "I:1;D:1", pack_ch_val(1, amp_plus, DOUBLE))
-    cs.call_process2(add1,'SetBurstCycles', "I:1;D:1", pack_ch_val(1, n_plus, DOUBLE))
-    cs.call_process2(add1,'SetTriggerDelay', "I:1;D:1", pack_ch_val(1, 0., DOUBLE))
-    cs.call_process2(add1,'SetFrequency', "I:1;D:1", pack_ch_val(2, f_c, DOUBLE))
-    cs.call_process2(add1,'SetAmplitude', "I:1;D:1", pack_ch_val(2, amp_c, DOUBLE))
-    cs.call_process2(add1,'SetBurstCycles', "I:1;D:1", pack_ch_val(2, n_c, DOUBLE))
+    cs.call_process2(add1,'SetChannelFrequency', "I:1;D:1", cs.pack_ch_val([1], [f_plus], cs.DOUBLE))
+    cs.call_process2(add1,'SetChannelAmplitude', "I:1;D:1", cs.pack_ch_val([1], [amp_plus], cs.DOUBLE))
+    cs.call_process2(add1,'SetBurstCycles', "I:1;I:1", cs.pack_ch_val([1], [n_plus], cs.INT))
+    cs.call_process2(add1,'SetTriggerDelay', "I:1;D:1", cs.pack_ch_val([1], [0], cs.DOUBLE))
+    cs.call_process2(add1,'SetChannelFrequency', "I:1;D:1", cs.pack_ch_val([2], [f_c], cs.DOUBLE))
+    cs.call_process2(add1,'SetChannelAmplitude', "I:1;D:1", cs.pack_ch_val([2], [amp_c], cs.DOUBLE))
+    cs.call_process2(add1,'SetBurstCycles', "I:1;I:1", cs.pack_ch_val([2], [n_c], cs.DOUBLE))
     delay = n_plus/f_plus
-    cs.call_process2(add1,'SetTriggerDelay', "I:1;D:1", pack_ch_val(2, delay, DOUBLE))
+    cs.call_process2(add1,'SetTriggerDelay', "I:1;D:1", cs.pack_ch_val([2], [delay], cs.DOUBLE))
     #configure the function generator of pattern 2
-    cs.call_process2(add2,'SetFrequency', "I:1;D:1", pack_ch_val(1, f_plus, DOUBLE))
-    cs.call_process2(add2,'SetAmplitude', "I:1;D:1", pack_ch_val(1, amp_plus, DOUBLE))
-    cs.call_process2(add2,'SetBurstCycles', "I:1;D:1", pack_ch_val(1, n_plus, DOUBLE))
-    cs.call_process2(add2,'SetTriggerDelay', "I:1;D:1", pack_ch_val(1, 0., DOUBLE))
-    cs.call_process2(add2,'SetFrequency', "I:1;D:1", pack_ch_val(2, f_c, DOUBLE))
-    cs.call_process2(add2,'SetAmplitude', "I:1;D:1", pack_ch_val(2, amp_c, DOUBLE))
-    cs.call_process2(add2,'SetBurstCycles', "I:1;D:1", pack_ch_val(2, n_c, DOUBLE))
+    cs.call_process2(add2,'SetChannelFrequency', "I:1;D:1", cs.pack_ch_val([1], [f_plus], cs.DOUBLE))
+    cs.call_process2(add2,'SetChannelAmplitude', "I:1;D:1", cs.pack_ch_val([1], [amp_plus], cs.DOUBLE))
+    cs.call_process2(add2,'SetBurstCycles', "I:1;I:1", cs.pack_ch_val([1], [n_plus], cs.INT))
+    cs.call_process2(add2,'SetTriggerDelay', "I:1;D:1", cs.pack_ch_val([1], [0], cs.DOUBLE))
+    cs.call_process2(add2,'SetChannelFrequency', "I:1;D:1", cs.pack_ch_val([2], [f_c], cs.DOUBLE))
+    cs.call_process2(add2,'SetChannelAmplitude', "I:1;D:1", cs.pack_ch_val([2], [amp_c], cs.DOUBLE))
+    cs.call_process2(add2,'SetBurstCycles', "I:1;I:1", cs.pack_ch_val([2], [n_c], cs.INT))
     delay = delay + n_acc/f_c
-    cs.call_process2(add2,'SetTriggerDelay', "I:1;D:1", pack_ch_val(2, delay, DOUBLE))
+    print 'delay = ', delay
+    cs.call_process2(add2,'SetTriggerDelay', "I:1;D:1", cs.pack_ch_val([2], [delay], cs.DOUBLE))
     #configure the function generator for ejection and MCA trigger
     delay = delay + n_c/f_c
-    cs.call_process2(addej,'SetTriggerDelay', "I:1;D:1", pack_ch_val(1, delay, DOUBLE))
-    return true
+    cs.call_process2(addej,'SetTriggerDelay', "I:1;D:1", cs.pack_ch_val([1], [delay], cs.DOUBLE))
 
 def main(argv):
     """
@@ -209,11 +209,12 @@ def main(argv):
 #        masses = [38.9631579064506, 40.96127668, 84.91124116, 86.90863195, 132.9049034]
         nloops = 1
         add_mag = 'UT_Mag'
-        f_mag = 1084
+        f_mag = 1000.
         amp_mag = 0.4
-        add_p1 = 'UT_p1'
-        add_p2 = 'UT_p2'
-        add_ej = 'UT_ej'
+        n_mag = 3
+        add_p1 = 'UT_P1'
+        add_p2 = 'UT_P2'
+        add_ej = 'UT_PI-ICR_EJ'
         f_plus = [1071384.0433, 1046735.7990]
         n_plus = [233,233]
         amp_plus = [2.,2.]
@@ -235,7 +236,7 @@ def main(argv):
         sequencer = "MM6"
         dim_dns_node = "pcisoltrap04.cern.ch"
         MMpath = "C:\\ISOLTRAP CS\\Settings\\MM6\\"
-        guiID = "pcisoltrap32"
+        guiID = "pcisoltrap21"
         ###################################################################
         #Setup dim connection
         ###################################################################
@@ -244,14 +245,18 @@ def main(argv):
         ###################################################################
         #Configure magnetron excitation (once for all)
         ###################################################################
+        print("I'm here 0!")
         config_mag(add_mag, f_mag, amp_mag, n_mag)
+        print("I'm here 2!")
         ###################################################################
         #Connect to the TDC Labview VI
         ###################################################################
-        VI = LabVIEW.getvireference('E:\PI-ICR\Read TDC 2016\TDC_DAQ\TDC_DAQ.vi')
+        LabVIEW = win32com.client.Dispatch("Labview.Application")
+        VI = LabVIEW.getvireference('E:\PI-ICR\Read TDC 2017\TDC_DAQ\TDC_DAQ.vi')
         ###################################################################
         #Loop over number of cross-checks
         ###################################################################
+        print("I'm here 3!")
         j = 0
         for i in range(nloops):
         ###################################################################
@@ -276,8 +281,9 @@ def main(argv):
     #    cs_objects = read_ini_file(inifile)
     ##################################################################
                 config_cycl(add_p1,add_p2,add_ej,f_plus[k],amp_plus[k],n_plus[k],f_c[k],amp_c[k],n_c[k],n_acc[k])
+                print("I'm here 4!")
                 sleep(10)
-                tdcfile = 'E:\PI-ICR\Read TDC 2016\TDC_DAQ\data\p1p2_'+elements[k]+'_'+str(j)+'.bin'
+                tdcfile = 'E:\PI-ICR\Read TDC 2017\TDC_DAQ\data\p1p2_'+elements[k]+'_'+str(j)+'.bin'
                 sleep(1)
                 VI.setcontrolvalue('data path',str(tdcfile))
                 sleep(1)
@@ -294,8 +300,8 @@ def main(argv):
     except KeyboardInterrupt:
         print('You pressed Ctrl+C!')
     finally:
-        if service_lvstatus != "stopped":
-            cs.call_process2(sequencer, abort, "C:{}".format(len(guiID)), mydata[3])
+    #    if service_lvstatus != "stopped":
+    #        cs.call_process2(sequencer, abort, "C:{}".format(len(guiID)), mydata[3])
         disconnect(dns_setup)
         cs.call_process2(sequencer, quit, "C:{}".format(len(guiID)), mydata[3])
 
