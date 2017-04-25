@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Created on Mon Oct 24 13:41:54 2016
+Modified on Tuesday April 25 2017
 
 example of command line argument : Path_to_file xlow xhigh binning model name output_name [if set tlow_Corr thigh_corr]
 E:/Data_Analysis/Data_Analysis_Cr/63Cr_2016_MRTOF/63Cr_352_1000revs/Cr_run_354
@@ -110,7 +111,10 @@ def find_peak(tof_spectrum, nbins,min_range, thres_Val):
     """
 	find estimated peaks' positions on the projection of time-of-flight spectrum
 	"""
+
     iflag = 1
+    wid_bin = 8
+    wid_flag = 1
     xbin_range = np.arange(1, nbins+1)
     ybin_value = []
     ybin_nb = []
@@ -123,6 +127,7 @@ def find_peak(tof_spectrum, nbins,min_range, thres_Val):
     ybin_nb = np.array(ybin_nb)
     plt.plot(xbin_range, ybin_nb)
     #plt.show()
+
     while iflag:
         indexes = peakutils.indexes(ybin_nb, thres=thres_Val, min_dist=min_range)
         print "number of peaks=", len(indexes)
@@ -132,16 +137,34 @@ def find_peak(tof_spectrum, nbins,min_range, thres_Val):
         pplot(xbin_range, ybin_nb, indexes)
         plt.title('First estimate')
         plt.show()
-        print "press 'c' to do another search or ENTER to quit search"
+
+        print "press 'c' to do another search or ENTER to quit search test"
         opt = raw_input()
         if opt == "c":
             min_range = float(raw_input("define a fit range:"))
             thres_Val = float(raw_input("define a threshold:"))
+            #indexes = []
             continue
         else:
             iflag = 0
-        peaks_x = peakutils.interpolate(xbin_range, ybin_nb, ind=indexes, width=min_range/4)
-    peaks_x = [int(ii) for ii in peaks_x]
+
+        while True:
+            try:
+                print 'current range: ', min_range
+                print 'current width: ', wid_bin
+                peaks_x = peakutils.interpolate(xbin_range, ybin_nb, ind=indexes, width=min_range/wid_bin)
+                print 'peak_x', peaks_x
+                break
+
+            except:
+                print 'crash!!!!!! RuntimeErrors'
+                print 'please modify the bin width_: options from 1 to 10'
+
+                wid_bin = int(raw_input())
+            iflag = 1
+            break
+
+    peaks_x = [int(round(ii)) for ii in peaks_x]
     tlow = ybin_value[peaks_x] - 0.5*float(min_range)
     thigh = ybin_value[peaks_x] + 0.5*float(min_range)
     return tlow, thigh, nb_peak
@@ -686,14 +709,16 @@ def mrtof_analysis(argv):
     if not os.path.exists(common_path):
         os.makedirs(common_path)
     f = open(common_path + "/" + "auto-ranges.ini", "w")
-    f_res_all = open(common_path + "/" + "all.res", "w")
-    f_res_header = "File Name          Range_low    Range_high   Model Name   count  Parameters with Error        Red_Chi2     P-value     Covariance-Matrix \n"
+    f_res_all = open(common_path + "/" + "all.res", "w", 0)   # "0" means write immediately to files
+    f_res_header = "File Name    Range_low    Range_high   Model Name   count  Parameters with Error        Red_Chi2     P-value     Covariance-Matrix \n"
     f_res_all.write(f_res_header)
 
     file_type = raw_input("please specify the file, 1 for ascii and 2 mpant \n")
     all_887_file = []
     all_asc_file = []
     all_mpant_file = []
+    min_range = []
+    thres_Val = []
     min_range = float(raw_input("define a fit range:"))
     thres_Val = float(raw_input("define a threshold:"))
     if file_type == "1":
@@ -822,6 +847,7 @@ def mrtof_analysis(argv):
                 make_profilell(analysis_pdf, roohist_tof, output_file, t_mark, nb_of_params, parameters)
                 print parameters[1].getValV(), parameters[1].getError(), parameters[1].getAsymErrorLo()
                 print parameters[2].getValV(), parameters[2].getError(), parameters[2].getAsymErrorLo()
+
                 #ini_par_val = list()
     			#for i in range(nb_of_params):
     			#    ini_par_val.append(parameters[i + 1].getValV())
@@ -838,11 +864,9 @@ def mrtof_analysis(argv):
     # process mpant files
     if file_type == "2":
         all_mpant_file = list_887_file(c_pat, "mpa")
-        #print all_mpant_file
         config = ConfigParser.RawConfigParser(allow_no_value=True)
 
         for each_mpant in all_mpant_file:
-            #print each_mpant
             pars = {}
             fname, fextension = os.path.splitext(each_mpant)
             print "fname", fname, "extension", fextension
@@ -859,7 +883,7 @@ def mrtof_analysis(argv):
                     if lookup in line:  # loacate the oistion of data
                         begin_line.append(num)
                 nbLine = num  # nbLine should be a list?
-            print each_mpant, "beginline", begin_line, "nb of lines", nbLine
+            #print each_mpant, "beginline", begin_line, "nb of lines", nbLine
 
             config.readfp(open('%s' % (each_mpant)))          # read MPANT file to process it
             bin_range = config.getint('MPA4A', 'range')     # get bin range
@@ -867,7 +891,7 @@ def mrtof_analysis(argv):
             pars['range'] = int(bin_range)
             pars['cycles'] = int(nb_cycles)
 
-            print "bin_range", bin_range, "cycle=", nb_cycles
+            #print "bin_range", bin_range, "cycle=", nb_cycles
 
             which_begin_line = 0    # sometimes 2 channels are active. here I decide which histogram to fit
             # offset = 0
@@ -886,7 +910,7 @@ def mrtof_analysis(argv):
                     if which_begin_line == len(begin_line):
                         terminate = 'now'
 
-            print "timeoffset", time_offset, "calfact", calfact, terminate
+            #print "timeoffset", time_offset, "calfact", calfact, terminate
 
             load_file = []
             if terminate == '':
@@ -896,8 +920,7 @@ def mrtof_analysis(argv):
                 with open(each_mpant, 'rb') as infile:
                     load_file = [[str(h) for h in line.strip().split()] for line in infile]
 
-                #print histogram_data[0][0]
-                print "last data", nbLine, load_file[nbLine-1]
+                #print "last data", nbLine, load_file[nbLine-1]
 
                 maxi = 0
                 cc = 0
@@ -916,8 +939,7 @@ def mrtof_analysis(argv):
                     help_load_file.extend([nbCycle])
                     help_load_file.extend([float(l) for l in load_file[k]])
                     histogram_data.append(help_load_file)
-                print "histogram_data[0]", histogram_data[20032]  # histogram_data[0] is the header, should be removed
-                print "ddd", pars.get('caloff'), pars.get('calfact'), pars.get('range'), pars.get('cycles')
+                #print "ddd", pars.get('caloff'), pars.get('calfact'), pars.get('range'), pars.get('cycles')
 
                 c2 = TCanvas()
                 hist_mcdwin_mpant = create2d_histogram(output_file, pars)
@@ -1010,8 +1032,8 @@ def mrtof_analysis(argv):
 			        # print res to file
                     reduce_chi2, parVal, cov_val = get_result(argv[4], nb_of_params, tframe, parameters, covariance)
                     print fname, tlow[i_peak]
-                    f_res.write("%-20s %-12.2f %-12.2f %-10s %d %-12.3f %-5.4f %-5.4f %-5.4f %-5.4f %-5s %-5.2f %-5.2f %-5.2f %-5.2f  \n" % (fname, tlow[i_peak], thigh[i_peak], argv[4], i_count, parVal[0],parVal[1],parVal[2],parVal[3],reduce_chi2, p_val,cov_val[0],cov_val[1],cov_val[2],cov_val[3]))
-                    f_res_all.write("%-20s %-12.2f %-12.2f %-10s %d %-12.3f %-5.4f %-5.4f %-5.4f %-5.4f %-5s %-5.2f %-5.2f %-5.2f %-5.2f  \n" % (fname, tlow[i_peak], thigh[i_peak], argv[4], i_count, parVal[0],parVal[1],parVal[2],parVal[3],reduce_chi2, p_val,cov_val[0],cov_val[1],cov_val[2],cov_val[3]))
+                    f_res.write("%-10s %-12.2f %-12.2f %-10s %6d %-12.3f %-5.4f %-5.4f %-5.4f %-5.4f %-5s %-5.2f %-5.2f %-5.2f %-5.2f  \n" % (fname, tlow[i_peak], thigh[i_peak], argv[4], i_count, parVal[0],parVal[1],parVal[2],parVal[3],reduce_chi2, p_val,cov_val[0],cov_val[1],cov_val[2],cov_val[3]))
+                    f_res_all.write("%-10s %-12.2f %-12.2f %-10s %6d %-12.3f %-5.4f %-5.4f %-5.4f %-5.4f %-5s %-5.2f %-5.2f %-5.2f %-5.2f  \n" % (fname, tlow[i_peak], thigh[i_peak], argv[4], i_count, parVal[0],parVal[1],parVal[2],parVal[3],reduce_chi2, p_val,cov_val[0],cov_val[1],cov_val[2],cov_val[3]))
                     #printtofile(argv[4],output_file, parameters, t_mark, covariance, nb_of_params, tlow[i_peak], thigh[i_peak], p_val, tframe, fname)
                     print parameters[1].getValV(), parameters[1].getError(), parameters[1].getAsymErrorLo()
                     print parameters[2].getValV(), parameters[2].getError(), parameters[2].getAsymErrorLo()
