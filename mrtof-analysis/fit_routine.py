@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Created on Mon Oct 24 13:41:54 2016
-Modified on Tuesday April 25 2017
+Modified on Tuesday April 26 2017
 
 example of command line argument : Path_to_file xlow xhigh binning model name output_name [if set tlow_Corr thigh_corr]
 E:/Data_Analysis/Data_Analysis_Cr/63Cr_2016_MRTOF/63Cr_352_1000revs/Cr_run_354
@@ -153,13 +153,12 @@ def find_peak(tof_spectrum, nbins,min_range, thres_Val):
                 print 'current range: ', min_range
                 print 'current width: ', wid_bin
                 peaks_x = peakutils.interpolate(xbin_range, ybin_nb, ind=indexes, width=min_range/wid_bin)
-                print 'peak_x', peaks_x
                 break
 
             except:
                 print 'crash!!!!!! RuntimeErrors'
-                print 'please modify the bin width_: options from 1 to 10'
-
+                print 'please reduce the current wid_bin ', wid_bin
+                print 'you can try', wid_bin - 1
                 wid_bin = int(raw_input())
             iflag = 1
             break
