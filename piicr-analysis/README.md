@@ -12,3 +12,12 @@ gitk
 
 # more info:
 https://rogerdudler.github.io/git-guide/index.de.html
+
+# brew commands:
+brew update
+brew upgrade
+brew missing
+brew outdated
+brew prune
+brew cleanup
+brew doctor

@@ -51,7 +51,7 @@ class Ame():
             os.chdir('G:\\Experiments\\ISOLTRAP\\Software\\PI-ICR\\Python-DAQ')
         elif platform.system() == 'Darwin': # MacOS
             # os.chdir('/Volumes/dfs/Software/PI-ICR/Python-DAQ/')
-            os.chdir('/Volumes/Python-DAQ/')
+            os.chdir('/Users/jonaskarthein/cernbox/Software/Python/piicr-analysis/')
         ame_import = np.genfromtxt(ame, skip_header=39, dtype=['a1', 'int', 'int', 'int', 'int', 'a4', 'a4', 'float', 'float', 'float', 'float', 'a3', 'float', 'float', 'int', 'float', 'float'], delimiter=[1,3,5,5,5,4,4,16,12,12,6,3,11,8,4,13,11])
         ame_table = [list(elem) for elem in ame_import.tolist()]    # convert list of tuples to list of lists
 

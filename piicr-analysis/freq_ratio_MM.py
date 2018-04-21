@@ -7,6 +7,7 @@ from datetime import datetime
 import sys, os
 import glob
 import json#simplejson as json
+import csv
 
 
 class MM_ratio():
@@ -51,6 +52,7 @@ class MM_ratio():
         self.birge_ratio = 0
         self.merged_dict = {}
         self.lin_extrapolation = False
+        self.mode = ''
 
 
     def batch(self, upper_run_folder, isotopes, degree=3, z_classes=['Z1-1']):
@@ -76,8 +78,12 @@ class MM_ratio():
     def main(self, isotopes, run_folder, degree=3, single_or_batch='single', z_classes='Z1-1'):
         self.degree = degree
         self.get_start_param()
-        self.set_folders(run_folder, isotopes)
-        self.get_data()
+        if single_or_batch == 'single_ToF_ICR':
+            self.get_data_tof_icr(run_folder, isotopes)
+            self.mode = 'single_ToF_ICR'
+        else:
+            self.set_folders(run_folder, isotopes)
+            self.get_data()
 
         if len(self.y2) > 1:    # make sure there are at least two points to fit
             self.fit()
@@ -151,6 +157,36 @@ class MM_ratio():
             self.param_start = [1,1,1,1,1,1]
         elif self.degree == 5:
             self.param_start = [1,1,1,1,1,1,1]
+        elif self.degree == 6:
+            self.param_start = [1,1,1,1,1,1,1,1]
+        elif self.degree == 7:
+            self.param_start = [1,1,1,1,1,1,1,1,1]
+
+
+    def get_data_tof_icr(self, run_folder, isotopes):
+        # bla
+        self.isotopes = isotopes
+        self.run_folder = run_folder
+
+        self.y1df = pd.read_csv(run_folder+isotopes[0]+'.csv',
+                                names=['frequency', 'unc', 'median_time'],
+                                parse_dates=[2])
+        self.y1 = self.y1df.iloc[:, 0].tolist()
+        self.y1err = self.y1df.iloc[:, 1].tolist()
+
+        self.x1df = self.y1df
+
+        self.y2df = pd.read_csv(run_folder+isotopes[1]+'.csv',
+                                names=['frequency', 'unc', 'median_time'],
+                                parse_dates=[2])
+        self.y2 = self.y2df.iloc[:, 0].tolist()
+        self.y2err = self.y2df.iloc[:, 1].tolist()
+
+        self.x2df = self.y2df
+
+
+        self.x1 = [round(i.total_seconds()/60, 2) for i in (self.x1df['median_time'] - min([self.x1df['median_time'][0], self.x2df['median_time'][0]])).tolist()]
+        self.x2 = [round(i.total_seconds()/60, 2) for i in (self.x2df['median_time'] - min([self.x1df['median_time'][0], self.x2df['median_time'][0]])).tolist()]
 
 
     def get_data(self):
@@ -186,13 +222,6 @@ class MM_ratio():
         self.x1df['median_counts'] = self.get_timestamp_position(self.x1helpfolder, self.x1names)
         self.x1df['median_time'] = (self.x1df['date_begin_time_begin'] +
                                     self.x1df['timedelta'] * self.x1df['median_counts'])
-        # the x values for the frequency information is converted into minutes after(/before) the first
-        # x1 frequency point started. This had to be changed since the fit wasn't very stable for x values
-        # having the correct time converted to seconds since the values were very large (e.g. 1498777404).
-        # The following statement reduces the x value to minutes in the 2-3 digit range. Important here is,
-        # that x1 and x2 are normalized to the same starting time of x1[0]
-        self.x1 = [round(i.total_seconds()/60, 2) for i in (self.x1df['median_time'] - self.x1df['median_time'][0]).tolist()]
-
 
 
         # ___________________________________________
@@ -213,8 +242,9 @@ class MM_ratio():
         # x1 frequency point started. This had to be changed since the fit wasn't very stable for x values
         # having the correct time converted to seconds since the values were very large (e.g. 1498777404).
         # The following statement reduces the x value to minutes in the 2-3 digit range. Important here is,
-        # that x1 and x2 are normalized to the same starting time of x1[0]
-        self.x2 = [i.total_seconds()/60 for i in (self.x2df['median_time'] - self.x1df['median_time'][0]).tolist()]
+        # that x1 and x2 are normalized to the same starting time of MIN(x1[0], x2[0])
+        self.x1 = [round(i.total_seconds()/60, 2) for i in (self.x1df['median_time'] - min([self.x1df['median_time'][0], self.x2df['median_time'][0]])).tolist()]
+        self.x2 = [round(i.total_seconds()/60, 2) for i in (self.x2df['median_time'] - min([self.x1df['median_time'][0], self.x2df['median_time'][0]])).tolist()]
 
 
     def get_timestamp_position(self, folder, x1_or_x2_names):
@@ -313,6 +343,12 @@ class MM_ratio():
         elif self.degree == 5:
             a, b, c, d, e, f = param
             return a * x**5 + b * x**4 + c * x**3 + d * x**2 + e * x + f
+        elif self.degree == 6:
+            a, b, c, d, e, f, g = param
+            return a * x**6 + b * x**5 + c * x**4 + d * x**3 + e * x**2 + f * x + g
+        elif self.degree == 7:
+            a, b, c, d, e, f, g, h = param
+            return a * x**7 + b * x**6 + c * x**5 + d * x**4 + e * x**3 + f * x**2 + g * x + h
 
 
     def residual(self, p, x, y, yerr):
@@ -337,6 +373,12 @@ class MM_ratio():
         elif self.degree == 5:
             p1 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[4], p_s[5]
             p2 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[4], p_s[6]
+        elif self.degree == 6:
+            p1 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[4], p_s[5], p_s[6]
+            p2 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[4], p_s[6], p_s[7]
+        elif self.degree == 7:
+            p1 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[4], p_s[5], p_s[6], p_s[7]
+            p2 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[4], p_s[6], p_s[7], p_s[8]
 
         res1 = self.residual(p1, x1, y1, y1err)
         res2 = self.residual(p2, x2, y2, y2err)
@@ -355,6 +397,10 @@ class MM_ratio():
             p1 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[4]
         elif self.degree == 5:
             p1 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[4], p_s[5]
+        elif self.degree == 6:
+            p1 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[4], p_s[5], p_s[6]
+        elif self.degree == 7:
+            p1 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[4], p_s[5], p_s[6], p_s[7]
 
         res1 = self.residual(p1, x1, y1, y1err)
         return(res1)
@@ -372,6 +418,10 @@ class MM_ratio():
             p2 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[5]
         elif self.degree == 5:
             p2 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[4], p_s[6]
+        elif self.degree == 6:
+            p2 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[4], p_s[6], p_s[7]
+        elif self.degree == 7:
+            p2 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[4], p_s[6], p_s[7], p_s[8]
 
         res2 = self.residual(p2, x2, y2, y2err)
         return(res2)
@@ -456,6 +506,8 @@ class MM_ratio():
 
         # fit
         x_range = max([max(self.x1), max(self.x2)]) - min([min(self.x1), min(self.x2)])
+
+
         x = np.linspace(min([min(self.x1), min(self.x2)]) - 0.05*x_range,
                         max([max(self.x1), max(self.x2)]) + 0.05*x_range, 200)
         if self.lin_extrapolation == False:
@@ -463,10 +515,10 @@ class MM_ratio():
             parameter2 = list(self.param_result)
             del(parameter2[-2])
             l3, = ax.plot([(pd.Timedelta(i, unit='m')
-                           +self.x1df['median_time'][0]).to_pydatetime(warn=False) for i in x]
+                           +min([self.x1df['median_time'][0], self.x2df['median_time'][0]])).to_pydatetime(warn=False) for i in x]
                            , self.fit_function(np.array(x), parameter1), 'r-', label='fit')   # the star is to unpack the parameter array
             ax2.plot([(pd.Timedelta(i, unit='m')
-                           +self.x1df['median_time'][0]).to_pydatetime(warn=False) for i in x]
+                           +min([self.x1df['median_time'][0], self.x2df['median_time'][0]])).to_pydatetime(warn=False) for i in x]
                            , self.fit_function(np.array(x), parameter2), 'r-', label='fit')   # the star is to unpack the parameter array
         else:
             l3, = ax.plot([(pd.Timedelta(i, unit='m')
@@ -672,12 +724,15 @@ class MM_ratio():
         anchored_text = mpl.offsetbox.AnchoredText('weighted mean =  {} $\\pm$ {} ($\\chi^2_{{red}}$ = {:3.2f})'.format(tmp_dict['Z0-0']['weighted_avg'], tmp_dict['Z0-0']['weighted_avg_unc'], tmp_dict['Z0-0']['birge_ratio']), loc='lower center')
         ax2.add_artist(anchored_text)
 
-        plt.savefig(os.path.dirname(merged_dict_file)+'/Z0-0/extrapolated_ratio_{}.pdf'.format(merged_dict_file[-17:-5]))
+        if self.mode == 'single_ToF_ICR':
+            plt.savefig('{}{}-{}-poly-fit-ratio.pdf'.format(self.run_folder, self.isotopes[0], self.isotopes[1]))
+        else:
+            plt.savefig(os.path.dirname(merged_dict_file)+'/Z0-0/extrapolated_ratio_{}.pdf'.format(merged_dict_file[-17:-5]))
         plt.close()
 
 if __name__ == '__main__':
     mm_ratio = MM_ratio()
-    mode = 'extrapolation'
+    mode = 'single_ToF_ICR'
     # z_classes = ['Z1-1', 'Z2-2', 'Z3-3']
     z_classes = 'Z1-1'
 
@@ -701,3 +756,11 @@ if __name__ == '__main__':
         json_folder = '/Volumes/ISOLTRAP/USER/Karthein_Jonas/Doktor/2017-11-02_Cd-analysis/PI-ICR/127Cd/merged_ratio_dict_133Cs_127mCd.json'
         # json_folder = '/Volumes/ISOLTRAP/USER/Karthein_Jonas/Doktor/2017-11-02_Cd-analysis/PI-ICR/129Cd/merged_ratio_dict_129Cs_129gCd.json'
         mm_ratio.extrapolation(json_folder)
+    elif mode == 'single_ToF_ICR':
+        # run_folder = '/Users/jonaskarthein/cernbox/Analysis/MirrorNuclei/poly_fit_all/'
+        run_folder = '/Users/jonaskarthein/cernbox/Analysis/MirrorNuclei/poly_fit_partial/21-part1/'
+        isotopes = ['21Ne', '21Na']
+        # isotopes = ['23Na', '23Mg']
+        # mm_ratio.get_data_tof_icr(run_folder, isotopes)
+        mm_ratio.main(run_folder=run_folder, isotopes=isotopes, degree=2, single_or_batch=mode, z_classes=z_classes)
+

@@ -18,7 +18,7 @@ import json
 def piicr_daq(data_folder_path, axis_scaling_factor, dont_show, pattern, sigma, bins, fit_range, cut_counter, tof_cut_on, tof_min, tof_max, trigger_on_off, clear_one, peak_finder_plot, all_peak_positions, hist2d_spines_off, hist2d_min_max, simple_plot_on, surface3D_plot_on, trigger_splitter, trigger_numbers, file_or_folder, file_name_input, color_map, analysis_old_new, z_class_analysis, FWHM_parameter_fix, one_or_two_peaks_to_fit):
     axis_scaling_factor = 0.031746032       # convert a.u. to mm
     origin_cartesian = [0, -31.5]       # in case the origin for a ring shape analysis is not at 0/0 change it here
-    single_analysis = True
+    single_analysis = False
     analysis_dict = {}
     counts_info_dict = {}
 
@@ -65,7 +65,7 @@ def piicr_daq(data_folder_path, axis_scaling_factor, dont_show, pattern, sigma, 
     for i in txt_files:
         try:
             file_name = i[:-4]
-            print('\n### Loading\n\nFile name                ::  %s') % (file_name)
+            print('\n### Loading\n\nFile name                ::  %s\nPattern                  ::  %s') % (file_name, pattern)
             results, file_name, time_info_hilf, counts_info = load_and_pattern(file_name, pattern, analysis_old_new)
 
             counts_info_dict['{}'.format(file_name)] = {}
@@ -127,6 +127,8 @@ def piicr_daq(data_folder_path, axis_scaling_factor, dont_show, pattern, sigma, 
                     temp_len = len(spot_positions_rec)
                     spot_positions_z = z_class_reduction(spot_positions_rec, z_class_analysis)
                     print 'Z-class reduction ({}-{})  ::  {}/{}'.format(str(int(z_class_analysis[1])), str(int(z_class_analysis[2])), len(spot_positions_z), temp_len)
+                else:
+                    spot_positions_z = spot_positions_rec
 
                 counts_info_dict['{}'.format(file_name)]['#z-spots'] = len(spot_positions_z)      # number of reconstructed spots
                 counts_info_dict['{}'.format(file_name)]['#z-spots-distribution'] = count_distribution(spot_positions_z)
