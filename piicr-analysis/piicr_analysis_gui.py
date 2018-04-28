@@ -1,7 +1,7 @@
 from PyQt5 import QtCore, QtGui, QtWidgets
 import ui_main
-from analysis_functions import *
-from cross_checks_functions import *
+from piicr_analysis import *
+from piicr_cross_checks import *
 import ellipse_selector
 import os
 import sys
@@ -76,6 +76,7 @@ class MainWindow(QtWidgets.QMainWindow, ui_main.Ui_MainWindow):
 		self.FWHM_parameter_fix = {'p1': {}, 'p2': {}, 'c': {}}
 		self.all_peak_pos_c_file_path = ''
 		self.isomer_analysis = False
+		self.ellipse_selection = False
 		self.check_status = {0: False,
 							 2: True}
 		self.cross_checks_isomer_analysis_str = ''
@@ -254,13 +255,14 @@ class MainWindow(QtWidgets.QMainWindow, ui_main.Ui_MainWindow):
 		print 'Folder name              :: ', self.folder_name
 
 		self.isomer_analysis = self.check_status[self.checkBox.checkState()]
+		self.ellipse_selection = self.check_status[self.checkBox_ellipse.checkState()]
 
 		folder_creation_analysis(self.folder_name, isotopes)
 		if self.all_peak_pos_c_file_path != '':
 			self.FWHM_parameter_fix = get_FWHM_parameter(self.all_peak_pos_c_file_path)
 
 		for i in isotopes:
-			analysis_main(self.folder_name+'/'+i, [self.x_min_name, self.x_max_name, self.y_min_name, self.y_max_name], [self.tof_min_name, self.tof_max_name], [self.z_class_min_name, self.z_class_max_name], self.FWHM_parameter_fix, self.isomer_analysis)
+			analysis_main(self.folder_name+'/'+i, [self.x_min_name, self.x_max_name, self.y_min_name, self.y_max_name], [self.tof_min_name, self.tof_max_name], [self.z_class_min_name, self.z_class_max_name], self.FWHM_parameter_fix, self.isomer_analysis, self.ellipse_selection)
 
 
 	def run_single_fit(self):

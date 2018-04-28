@@ -2,7 +2,7 @@
 
 # Form implementation generated from reading ui file 'piicr_analysis_gui.ui'
 #
-# Created by: PyQt5 UI code generator 5.9.1
+# Created by: PyQt5 UI code generator 5.10.1
 #
 # WARNING! All changes made in this file will be lost!
 
@@ -11,16 +11,16 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
         MainWindow.setObjectName("MainWindow")
-        MainWindow.resize(640, 437)
+        MainWindow.resize(640, 480)
         self.centralwidget = QtWidgets.QWidget(MainWindow)
         self.centralwidget.setObjectName("centralwidget")
         self.tabWidget = QtWidgets.QTabWidget(self.centralwidget)
-        self.tabWidget.setGeometry(QtCore.QRect(0, 0, 601, 401))
+        self.tabWidget.setGeometry(QtCore.QRect(0, 0, 601, 431))
         self.tabWidget.setObjectName("tabWidget")
         self.tab_3 = QtWidgets.QWidget()
         self.tab_3.setObjectName("tab_3")
         self.groupBox = QtWidgets.QGroupBox(self.tab_3)
-        self.groupBox.setGeometry(QtCore.QRect(20, 210, 236, 91))
+        self.groupBox.setGeometry(QtCore.QRect(20, 240, 236, 91))
         self.groupBox.setCheckable(True)
         self.groupBox.setChecked(False)
         self.groupBox.setObjectName("groupBox")
@@ -43,7 +43,7 @@ class Ui_MainWindow(object):
         self.label_7.setGeometry(QtCore.QRect(0, 60, 111, 16))
         self.label_7.setObjectName("label_7")
         self.groupBox_2 = QtWidgets.QGroupBox(self.tab_3)
-        self.groupBox_2.setGeometry(QtCore.QRect(270, 210, 146, 91))
+        self.groupBox_2.setGeometry(QtCore.QRect(270, 240, 146, 91))
         self.groupBox_2.setCheckable(True)
         self.groupBox_2.setChecked(False)
         self.groupBox_2.setObjectName("groupBox_2")
@@ -60,7 +60,7 @@ class Ui_MainWindow(object):
         self.label_9.setGeometry(QtCore.QRect(0, 60, 81, 16))
         self.label_9.setObjectName("label_9")
         self.groupBox_3 = QtWidgets.QGroupBox(self.tab_3)
-        self.groupBox_3.setGeometry(QtCore.QRect(430, 210, 146, 91))
+        self.groupBox_3.setGeometry(QtCore.QRect(430, 240, 146, 91))
         self.groupBox_3.setCheckable(True)
         self.groupBox_3.setChecked(False)
         self.groupBox_3.setObjectName("groupBox_3")
@@ -77,7 +77,7 @@ class Ui_MainWindow(object):
         self.label_13.setGeometry(QtCore.QRect(0, 60, 81, 16))
         self.label_13.setObjectName("label_13")
         self.tabWidget_2 = QtWidgets.QTabWidget(self.tab_3)
-        self.tabWidget_2.setGeometry(QtCore.QRect(0, 0, 591, 211))
+        self.tabWidget_2.setGeometry(QtCore.QRect(0, 0, 591, 241))
         self.tabWidget_2.setTabPosition(QtWidgets.QTabWidget.West)
         self.tabWidget_2.setObjectName("tabWidget_2")
         self.tab = QtWidgets.QWidget()
@@ -113,10 +113,15 @@ class Ui_MainWindow(object):
         self.label.setGeometry(QtCore.QRect(13, 150, 122, 16))
         self.label.setObjectName("label")
         self.checkBox = QtWidgets.QCheckBox(self.tab)
-        self.checkBox.setGeometry(QtCore.QRect(10, 180, 541, 21))
+        self.checkBox.setGeometry(QtCore.QRect(10, 210, 541, 21))
         self.checkBox.setAutoRepeat(False)
         self.checkBox.setTristate(False)
         self.checkBox.setObjectName("checkBox")
+        self.checkBox_ellipse = QtWidgets.QCheckBox(self.tab)
+        self.checkBox_ellipse.setGeometry(QtCore.QRect(10, 180, 541, 21))
+        self.checkBox_ellipse.setAutoRepeat(False)
+        self.checkBox_ellipse.setTristate(False)
+        self.checkBox_ellipse.setObjectName("checkBox_ellipse")
         self.tabWidget_2.addTab(self.tab, "")
         self.tab_2 = QtWidgets.QWidget()
         self.tab_2.setObjectName("tab_2")
@@ -140,7 +145,7 @@ class Ui_MainWindow(object):
         self.label_11.setObjectName("label_11")
         self.tabWidget_2.addTab(self.tab_2, "")
         self.groupBox_4 = QtWidgets.QGroupBox(self.tab_3)
-        self.groupBox_4.setGeometry(QtCore.QRect(20, 300, 556, 71))
+        self.groupBox_4.setGeometry(QtCore.QRect(20, 330, 556, 71))
         self.groupBox_4.setCheckable(True)
         self.groupBox_4.setChecked(False)
         self.groupBox_4.setObjectName("groupBox_4")
@@ -227,7 +232,7 @@ class Ui_MainWindow(object):
         self.tabWidget_3.addTab(self.tab_6, "")
         self.tabWidget.addTab(self.tab_4, "")
         self.exit_bttn = QtWidgets.QPushButton(self.centralwidget)
-        self.exit_bttn.setGeometry(QtCore.QRect(600, 10, 41, 391))
+        self.exit_bttn.setGeometry(QtCore.QRect(600, 10, 41, 421))
         self.exit_bttn.setObjectName("exit_bttn")
         MainWindow.setCentralWidget(self.centralwidget)
         self.menubar = QtWidgets.QMenuBar(MainWindow)
@@ -317,6 +322,7 @@ class Ui_MainWindow(object):
         self.run.setText(_translate("MainWindow", "Run"))
         self.label.setText(_translate("MainWindow", "Enter isotopes here:"))
         self.checkBox.setText(_translate("MainWindow", "Isotope analysis: simultaneous 2D gaussian fit for both ground and isomer (P2 spot)"))
+        self.checkBox_ellipse.setText(_translate("MainWindow", "Manual spot selection (Click+hold ellipse selector)"))
         self.tabWidget_2.setTabText(self.tabWidget_2.indexOf(self.tab), _translate("MainWindow", "Batch"))
         self.label_10.setText(_translate("MainWindow", "PI-ICR spot reconstruction and frequency calculation V2.1:\n"
 "\n"

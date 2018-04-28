@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>640</width>
-    <height>437</height>
+    <height>480</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -20,7 +20,7 @@
       <x>0</x>
       <y>0</y>
       <width>601</width>
-      <height>401</height>
+      <height>431</height>
      </rect>
     </property>
     <property name="currentIndex">
@@ -34,7 +34,7 @@
       <property name="geometry">
        <rect>
         <x>20</x>
-        <y>210</y>
+        <y>240</y>
         <width>236</width>
         <height>91</height>
        </rect>
@@ -119,7 +119,7 @@
       <property name="geometry">
        <rect>
         <x>270</x>
-        <y>210</y>
+        <y>240</y>
         <width>146</width>
         <height>91</height>
        </rect>
@@ -184,7 +184,7 @@
       <property name="geometry">
        <rect>
         <x>430</x>
-        <y>210</y>
+        <y>240</y>
         <width>146</width>
         <height>91</height>
        </rect>
@@ -251,7 +251,7 @@
         <x>0</x>
         <y>0</y>
         <width>591</width>
-        <height>211</height>
+        <height>241</height>
        </rect>
       </property>
       <property name="tabPosition">
@@ -385,13 +385,32 @@ select it. Then provide information about the isotopes (e.g. '85Rb') and klick '
         <property name="geometry">
          <rect>
           <x>10</x>
-          <y>180</y>
+          <y>210</y>
           <width>541</width>
           <height>21</height>
          </rect>
         </property>
         <property name="text">
          <string>Isotope analysis: simultaneous 2D gaussian fit for both ground and isomer (P2 spot)</string>
+        </property>
+        <property name="autoRepeat">
+         <bool>false</bool>
+        </property>
+        <property name="tristate">
+         <bool>false</bool>
+        </property>
+       </widget>
+       <widget class="QCheckBox" name="checkBox_ellipse">
+        <property name="geometry">
+         <rect>
+          <x>10</x>
+          <y>180</y>
+          <width>541</width>
+          <height>21</height>
+         </rect>
+        </property>
+        <property name="text">
+         <string>Manual spot selection (Click+hold ellipse selector)</string>
         </property>
         <property name="autoRepeat">
          <bool>false</bool>
@@ -486,7 +505,7 @@ Select a file to fit and klick 'Run'.</string>
       <property name="geometry">
        <rect>
         <x>20</x>
-        <y>300</y>
+        <y>330</y>
         <width>556</width>
         <height>71</height>
        </rect>
@@ -771,7 +790,7 @@ the run-folders (same as in fitting) of the runs you want to combine and klick '
       <x>600</x>
       <y>10</y>
       <width>41</width>
-      <height>391</height>
+      <height>421</height>
      </rect>
     </property>
     <property name="text">
