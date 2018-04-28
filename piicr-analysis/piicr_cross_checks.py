@@ -1,20 +1,16 @@
 # ---------------------------------------------------------------------------
-# Written by Jonas Karthein in 2016/2017. Questions to jonas.karthein@cern.ch
+# Written by Jonas Karthein in 2016/2017/2018. Questions to jonas.karthein@cern.ch
 # ---------------------------------------------------------------------------
 
-import os
-import sys
-import math
+import os, sys, math, datetime, xlsxwriter, xlrd, platform
 import numpy as np
-from scipy.stats import chisquare
 import pandas as pd
-import datetime
-import xlsxwriter
-import xlrd
+
+from scipy.stats import chisquare
+
 from get_ame_data import Ame
 from read_write_functions import *
 from python_plotter_functions import *
-import platform
 
 
 def GetNextHigh(temp, templist):

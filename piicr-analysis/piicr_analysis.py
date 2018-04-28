@@ -1,27 +1,20 @@
+
 # ---------------------------------------------------------------------------
-# Written by Jonas Karthein in 2016/2017. Questions to jonas.karthein@cern.ch
+# Written by Jonas Karthein in 2016/2017/2018. Questions to jonas.karthein@cern.ch
 # ---------------------------------------------------------------------------
 
-import math
+import sys, os, math, csv, glob, datetime, shutil, platform, subprocess, time
+import numpy as np
+import pandas as pd
 import matplotlib as mpl
 mpl.use('Qt5Agg')
 
 import matplotlib.pyplot as plt
-import numpy as np
+import xml.etree.ElementTree as ET
+
 from piicr_reconstruction import *
-# from analysis_functions import *
-import csv
-import sys, os
-import glob
-import datetime
-import pandas as pd
 from read_write_functions import *
 from python_plotter_functions import *
-import xml.etree.ElementTree as ET
-import shutil
-import platform
-import subprocess
-import time
 from piicr_cross_checks import weighted_mean
 
 
@@ -53,11 +46,12 @@ def folder_creation_analysis(folder_name, isotopes):
                 os.mkdir(folder_name+'\\'+i+'\\freq_config')
 
             for j in txt_files:
-                if (i+'_c') in j:   # move center files
-                    shutil.move(folder_name+'\\'+j, folder_name+'\\'+i+'\\c\\'+j)
-                if i in j:          # move p1p2 files
-                    if os.path.isfile(folder_name+'\\'+j) == True:
-                        shutil.move(folder_name+'\\'+j, folder_name+'\\'+i+'\\p1p2\\'+j)
+                if i in j:
+                    if '_c' in j:   # move center files
+                        shutil.move(folder_name+'\\'+j, folder_name+'\\'+i+'\\c\\'+j)
+                    else:          # move p1p2 files
+                        if os.path.isfile(folder_name+'\\'+j) == True:
+                            shutil.move(folder_name+'\\'+j, folder_name+'\\'+i+'\\p1p2\\'+j)
 
             out_files = []
             for file in glob.glob("*.out"):
@@ -83,11 +77,12 @@ def folder_creation_analysis(folder_name, isotopes):
                 os.mkdir(folder_name+'/'+i+'/freq_config')
 
             for j in txt_files:
-                if (i+'_c') in j:   # move center files
-                    shutil.move(folder_name+'/'+j, folder_name+'/'+i+'/c/'+j)
-                if i in j:          # move p1p2 files
-                    if os.path.isfile(folder_name+'/'+j) == True:
-                        shutil.move(folder_name+'/'+j, folder_name+'/'+i+'/p1p2/'+j)
+                if i in j:
+                    if '_c' in j:   # move center files
+                        shutil.move(folder_name+'\\'+j, folder_name+'\\'+i+'\\c\\'+j)
+                    else:          # move p1p2 files
+                        if os.path.isfile(folder_name+'\\'+j) == True:
+                            shutil.move(folder_name+'\\'+j, folder_name+'\\'+i+'\\p1p2\\'+j)
 
             out_files = []
             for file in glob.glob("*.out"):

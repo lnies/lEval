@@ -1,6 +1,6 @@
 
 # ---------------------------------------------------------------------------
-# Written by Jonas Karthein in 2016/2017. Questions to jonas.karthein@cern.ch
+# Written by Jonas Karthein in 2016/2017/2018. Questions to jonas.karthein@cern.ch
 # ---------------------------------------------------------------------------
 
 import sys, os, time, json, math, glob, csv, multiprocessing, ROOT, collections, scipy.optimize
@@ -11,7 +11,6 @@ mpl.use('Qt5Agg')
 
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import axes3d
-# from array import array     # used in ROOT for filling a TTree
 import array as ARRAY
 import copy as COPY
 

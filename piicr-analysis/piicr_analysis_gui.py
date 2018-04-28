@@ -1,3 +1,8 @@
+
+# ---------------------------------------------------------------------------
+# Written by Jonas Karthein in 2016/2017/2018. Questions to jonas.karthein@cern.ch
+# ---------------------------------------------------------------------------
+
 from PyQt5 import QtCore, QtGui, QtWidgets
 import ui_main
 from piicr_analysis import *
