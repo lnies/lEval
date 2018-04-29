@@ -3,13 +3,14 @@
 # Written by Jonas Karthein in 2016/2017/2018. Questions to jonas.karthein@cern.ch
 # ---------------------------------------------------------------------------
 
+import os, sys
+
 from PyQt5 import QtCore, QtGui, QtWidgets
+
 import ui_main
+import ellipse_selector
 from piicr_analysis import *
 from piicr_cross_checks import *
-import ellipse_selector
-import os
-import sys
 
 # pyuic5 -x piicr_analysis_gui.ui -o ui_main.py
 
