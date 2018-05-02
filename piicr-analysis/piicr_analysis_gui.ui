@@ -391,7 +391,7 @@ select it. Then provide information about the isotopes (e.g. '85Rb') and klick '
          </rect>
         </property>
         <property name="text">
-         <string>Isotope analysis: simultaneous 2D gaussian fit for both ground and isomer (P2 spot)</string>
+         <string>Isomer analysis: simultaneous 2D gaussian fit for both ground and isomer (P2 spot)</string>
         </property>
         <property name="autoRepeat">
          <bool>false</bool>

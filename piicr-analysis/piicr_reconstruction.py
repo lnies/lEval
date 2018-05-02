@@ -3,16 +3,18 @@
 # Written by Jonas Karthein in 2016/2017/2018. Questions to jonas.karthein@cern.ch
 # ---------------------------------------------------------------------------
 
-import sys, os, time, json, math, glob, csv, multiprocessing, ROOT, collections, scipy.optimize
+import sys, os, time, json, math, glob, csv, multiprocessing, scipy.optimize, platform
 import numpy as np
 import pandas as pd
 import matplotlib as mpl
 mpl.use('Qt5Agg')
 
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import axes3d
 import array as ARRAY
 import copy as COPY
+import ROOT as root
+from mpl_toolkits.mplot3d import axes3d
+from collections import Counter
 
 from read_write_functions import *
 from python_plotter_functions import *
@@ -1455,46 +1457,46 @@ def spot_fit_root(file_name, spot_positions, all_peak_positions, mean_x, mean_y,
 
     :param fit_range: vector containing [0] = cut_x_min, [1] = cut_x_max, [2] = cut_y_min, [3] = cut_y_max
     '''
-    ROOT.gErrorIgnoreLevel = ROOT.kInfo
-    ROOT.RooMsgService.instance().setGlobalKillBelow(ROOT.RooFit.WARNING)
+    root.gErrorIgnoreLevel = root.kInfo
+    root.RooMsgService.instance().setGlobalKillBelow(root.RooFit.WARNING)
 
 
     # import data into TTree
-    tree = ROOT.TTree('tree', 'tree')
+    tree = root.TTree('tree', 'tree')
     tree.ReadFile('%s_spot_positions.csv' % (file_name), 'inj/D:x/D:y/D:t/D', ',')
 
     # set vector properties
-    inj = ROOT.RooRealVar('inj', 'inj', 0, 0.0, 5000.0)
-    x = ROOT.RooRealVar('x', 'x', 0, fit_range[0], fit_range[1])
-    y = ROOT.RooRealVar('y', 'y', 0, fit_range[2], fit_range[3])
-    t = ROOT.RooRealVar('t', 't', 1000000.0, 1000000., 3000000.0)
+    inj = root.RooRealVar('inj', 'inj', 0, 0.0, 5000.0)
+    x = root.RooRealVar('x', 'x', 0, fit_range[0], fit_range[1])
+    y = root.RooRealVar('y', 'y', 0, fit_range[2], fit_range[3])
+    t = root.RooRealVar('t', 't', 1000000.0, 1000000., 3000000.0)
 
     # set dataset
-    ds = ROOT.RooDataSet('x-y', 'x-y-data', tree, ROOT.RooArgSet(x, y))
+    ds = root.RooDataSet('x-y', 'x-y-data', tree, root.RooArgSet(x, y))
 
     # set fitting model
-    meanx = ROOT.RooRealVar('meanx', 'meanx', mean_x, mean_x-50.0, mean_x+50.0)
-    meany = ROOT.RooRealVar('meany', 'meany', mean_y, mean_y-50.0, mean_y+50.0)
+    meanx = root.RooRealVar('meanx', 'meanx', mean_x, mean_x-50.0, mean_x+50.0)
+    meany = root.RooRealVar('meany', 'meany', mean_y, mean_y-50.0, mean_y+50.0)
 
     if sigma_import['fixed'] == True:
-        sigmax = ROOT.RooRealVar('sigmax', 'sigmax', float(sigma_import['sigmax']))
-        sigmay = ROOT.RooRealVar('sigmay', 'sigmay', float(sigma_import['sigmay']))
+        sigmax = root.RooRealVar('sigmax', 'sigmax', float(sigma_import['sigmax']))
+        sigmay = root.RooRealVar('sigmay', 'sigmay', float(sigma_import['sigmay']))
         sigmax.setConstant(True)
         sigmay.setConstant(True)
     else:
-        sigmax = ROOT.RooRealVar('sigmax', 'sigmax', 50.0, 10.0, 100.0)
-        sigmay = ROOT.RooRealVar('sigmay', 'sigmay', 50.0, 10.0, 100.0)
+        sigmax = root.RooRealVar('sigmax', 'sigmax', 50.0, 10.0, 100.0)
+        sigmay = root.RooRealVar('sigmay', 'sigmay', 50.0, 10.0, 100.0)
 
-    gaussx = ROOT.RooGaussian('gaussx', 'Gaussian distribution', x, meanx, sigmax)
-    gaussy = ROOT.RooGaussian('gaussy', 'Gaussian distribution', y, meany, sigmay)
-    gaussxy = ROOT.RooProdPdf('gxy', 'gx*gy', ROOT.RooArgList(gaussx,gaussy))
+    gaussx = root.RooGaussian('gaussx', 'Gaussian distribution', x, meanx, sigmax)
+    gaussy = root.RooGaussian('gaussy', 'Gaussian distribution', y, meany, sigmay)
+    gaussxy = root.RooProdPdf('gxy', 'gx*gy', root.RooArgList(gaussx,gaussy))
 
     # actual fit:
-    result = gaussxy.fitTo(ds, ROOT.RooFit.PrintLevel(-1), ROOT.RooFit.Verbose(False)) # , ROOT.RooFit.NumCPU(4))
+    result = gaussxy.fitTo(ds, root.RooFit.PrintLevel(-1), root.RooFit.Verbose(False)) # , root.RooFit.NumCPU(4))
 
     if nll_plot == 'yes':
         # plot projections and fits
-        c = ROOT.TCanvas('c', 'results', 1000, 700)
+        c = root.TCanvas('c', 'results', 1000, 700)
         c.Divide(2, 2)
 
         c.cd(1)
@@ -1517,11 +1519,11 @@ def spot_fit_root(file_name, spot_positions, all_peak_positions, mean_x, mean_y,
 
         # plot nll's
         c.cd(3)
-        nllx = gaussxy.createNLL(ds) # , ROOT.RooFit.NumCPU(4))
-        profile_llmeanx = nllx.createProfile(ROOT.RooArgSet(meanx))
+        nllx = gaussxy.createNLL(ds) # , root.RooFit.NumCPU(4))
+        profile_llmeanx = nllx.createProfile(root.RooArgSet(meanx))
         pllframex = meanx.frame()
-        nllx.plotOn(pllframex, ROOT.RooFit.ShiftToZero())
-        profile_llmeanx.plotOn(pllframex, ROOT.RooFit.LineColor(ROOT.kRed))
+        nllx.plotOn(pllframex, root.RooFit.ShiftToZero())
+        profile_llmeanx.plotOn(pllframex, root.RooFit.LineColor(root.kRed))
         pllframex.SetTitle('X-NLL analysis')
         pllframex.SetXTitle('channels')
         # pllframex.SetMinimum(0)
@@ -1530,11 +1532,11 @@ def spot_fit_root(file_name, spot_positions, all_peak_positions, mean_x, mean_y,
 
 
         c.cd(4)
-        nlly = gaussxy.createNLL(ds) # , ROOT.RooFit.NumCPU(4))
-        profile_llmeany = nlly.createProfile(ROOT.RooArgSet(meany))
+        nlly = gaussxy.createNLL(ds) # , root.RooFit.NumCPU(4))
+        profile_llmeany = nlly.createProfile(root.RooArgSet(meany))
         pllframey = meany.frame()
-        nlly.plotOn(pllframey, ROOT.RooFit.ShiftToZero())
-        profile_llmeany.plotOn(pllframey, ROOT.RooFit.LineColor(ROOT.kRed))
+        nlly.plotOn(pllframey, root.RooFit.ShiftToZero())
+        profile_llmeany.plotOn(pllframey, root.RooFit.LineColor(root.kRed))
         pllframey.SetTitle('Y-NLL analysis')
         pllframey.SetXTitle('channels')
         # pllframey.SetMinimum(0)
@@ -1566,7 +1568,7 @@ def spot_fit_root(file_name, spot_positions, all_peak_positions, mean_x, mean_y,
 
     # python_plot(only_spot_positions, 'MCP-PS', '%s_mcp_2' % file_name, 'no', '', 'no', 'gauss', 'Utopia', 'red', 'black', 'full', 0, 8, 6, '2dhistogram-mcp', 60, 1, 'on', 'off', 'mcp', [x_sigma, x_sigma_err, y_sigma, y_sigma_err], [x_pos, x_pos_err, y_pos, y_pos_err])
 
-    #ROOT.gApplication.Run()
+    #root.gApplication.Run()
 
     # output
     all_peak_positions = [file_name, x_pos, x_pos_err, y_pos, y_pos_err, x_sigma, x_sigma_err, y_sigma, y_sigma_err, ds.numEntries()]
@@ -1585,7 +1587,7 @@ def z_class_reduction(spot_positions, z_class_analysis):
     for entry in spot_positions:
         ejections.append(entry[0])
 
-    ejections_dict = dict(collections.Counter(ejections))   # count how many ions per ejection were found
+    ejections_dict = dict(Counter(ejections))   # count how many ions per ejection were found
 
     reduced_spot_positions = []
     for key in ejections_dict:
@@ -1599,8 +1601,8 @@ def z_class_reduction(spot_positions, z_class_analysis):
 
 def root_1D_unbinned_gauss_fit(liste, file_name):
     '''Function takes 1D list with unbinned data and returns a list with gaussian fit parameters: x, x_unc., sigma, sigma_unc.'''
-    ROOT.gErrorIgnoreLevel = ROOT.kInfo
-    ROOT.RooMsgService.instance().setGlobalKillBelow(ROOT.RooFit.WARNING)
+    root.gErrorIgnoreLevel = root.kInfo
+    root.RooMsgService.instance().setGlobalKillBelow(root.RooFit.WARNING)
 
 
 
@@ -1640,41 +1642,31 @@ def root_1D_unbinned_gauss_fit(liste, file_name):
 
 
     # import list to ROOT
-    # f = ROOT.TFile( 'test.root', 'recreate' )
-    tree = ROOT.TTree( 'tree', 'tree' )
+    # f = root.TFile( 'test.root', 'recreate' )
+    if platform.system() == 'Darwin':
+        tree = root.TTree( 'tree', 'tree' )
 
-    x = ARRAY.array('d', [ 0. ])
-    tree.Branch('x', x, 'x/D')
-    for i in range(len(import_list)):
-        x[0] = import_list[i]
-        tree.Fill()
-    # unbinned max. likelihood fit
-    x = ROOT.RooRealVar('x', 'x', 0, 200, 'us')
-    ds = ROOT.RooDataSet('x-data', 'x-data', ROOT.RooArgSet(x), ROOT.RooFit.Import(tree))
-    meant = ROOT.RooRealVar('meant', 'meant', mean_x, mean_x-5, mean_x+5)#, 'us')
-    sigmax = ROOT.RooRealVar('sigmax', 'sigmax', std_x, 0.01, 5)
-    gaussx = ROOT.RooGaussian('gaussx', 'Gaussian distribution', x, meant, sigmax)
-    x.setRange('range', mean_x-10, mean_x+10)
-    result = gaussx.fitTo(ds, ROOT.RooFit.Range('range'), ROOT.RooFit.PrintLevel(-1), ROOT.RooFit.Verbose(False)) # , ROOT.RooFit.NumCPU(4))
-    # fit results
-    x_pos = meant.getValV()
-    x_pos_err = meant.getError()
-    x_sigma = sigmax.getValV()
-    x_sigma_err = sigmax.getError()
-    # plot
-    # c = ROOT.TCanvas('c', 'x', 1000, 700)
-    # # tree.Draw('x')
-    # tframe = x.frame()
-    # ds.plotOn(tframe, ROOT.RooFit.Binning(2000))
-    # gaussx.plotOn(tframe,ROOT.RooFit.LineColor(ROOT.kRed))
-    # tframe.Draw()
-    # c.Update()
-    # pdffile = 'file_name' + '_hist.pdf'
-    # c.SaveAs(pdffile)
-    # ROOT.gApplication.Run()
-    # f.Write()
-    # f.Close()
-    return([x_pos, x_pos_err, x_sigma, x_sigma_err])
+        x = ARRAY.array('d', [ 0. ])
+        tree.Branch('x', x, 'x/D')
+        for i in range(len(import_list)):
+            x[0] = import_list[i]
+            tree.Fill()
+        # unbinned max. likelihood fit
+        x = root.RooRealVar('x', 'x', 0, 200, 'us')
+        ds = root.RooDataSet('x-data', 'x-data', root.RooArgSet(x), root.RooFit.Import(tree))
+        meant = root.RooRealVar('meant', 'meant', mean_x, mean_x-5, mean_x+5)#, 'us')
+        sigmax = root.RooRealVar('sigmax', 'sigmax', std_x, 0.01, 5)
+        gaussx = root.RooGaussian('gaussx', 'Gaussian distribution', x, meant, sigmax)
+        x.setRange('range', mean_x-10, mean_x+10)
+        result = gaussx.fitTo(ds, root.RooFit.Range('range'), root.RooFit.PrintLevel(-1), root.RooFit.Verbose(False)) # , root.RooFit.NumCPU(4))
+        # fit results
+        x_pos = meant.getValV()
+        x_pos_err = meant.getError()
+        x_sigma = sigmax.getValV()
+        x_sigma_err = sigmax.getError()
+        return([x_pos, x_pos_err, x_sigma, x_sigma_err])
+    else:
+        return([mean_x,0.001,std_x,0.001])
 
 
 def index_max_value(liste):
@@ -1694,8 +1686,8 @@ def two_spot_fit_root(file_name, all_peak_positions, mean_x_1, mean_y_1, mean_x_
 
     :param fit_range: vector containing [0] = cut_x_min, [1] = cut_x_max, [2] = cut_y_min, [3] = cut_y_max
     '''
-    ROOT.gErrorIgnoreLevel = ROOT.kWarning
-    ROOT.RooMsgService.instance().setGlobalKillBelow(ROOT.RooFit.WARNING)
+    root.gErrorIgnoreLevel = root.kWarning
+    root.RooMsgService.instance().setGlobalKillBelow(root.RooFit.WARNING)
 
     axis_scaling_factor = 0.031746032
     fit_status_meaning = {0: 'converged',
@@ -1706,64 +1698,64 @@ def two_spot_fit_root(file_name, all_peak_positions, mean_x_1, mean_y_1, mean_x_
                           5: 'Any other failure'}
 
     # import data into TTree
-    tree_1 = ROOT.TTree('tree_1', 'tree_1')
+    tree_1 = root.TTree('tree_1', 'tree_1')
     tree_1.ReadFile('%s_spot_positions_dominant.csv' % (file_name), 'inj/D:x/D:y/D:t/D', ',')
-    tree_2 = ROOT.TTree('tree_2', 'tree_2')
+    tree_2 = root.TTree('tree_2', 'tree_2')
     tree_2.ReadFile('%s_spot_positions_recessive.csv' % (file_name), 'inj/D:x/D:y/D:t/D', ',')
 
     # set vector properties
-    inj = ROOT.RooRealVar('inj', 'inj', 0, 0.0, 5000.0)
-    x = ROOT.RooRealVar('x', 'x', 0, -750, 750)
-    y = ROOT.RooRealVar('y', 'y', 0, -750, 750)
-    t = ROOT.RooRealVar('t', 't', 1000000.0, 1000000., 3000000.0)
+    inj = root.RooRealVar('inj', 'inj', 0, 0.0, 5000.0)
+    x = root.RooRealVar('x', 'x', 0, -750, 750)
+    y = root.RooRealVar('y', 'y', 0, -750, 750)
+    t = root.RooRealVar('t', 't', 1000000.0, 1000000., 3000000.0)
 
     # set dataset
-    ds = ROOT.RooDataSet('ds', 'x-y-data', tree_1, ROOT.RooArgSet(x, y))
-    cat = ROOT.RooCategory('cat', 'Category')
+    ds = root.RooDataSet('ds', 'x-y-data', tree_1, root.RooArgSet(x, y))
+    cat = root.RooCategory('cat', 'Category')
     cat.defineType('data_dominant')
     cat.defineType('data_recessive')
     cat.setLabel('data_dominant')
     ds.addColumn(cat)
 
-    ds_2 = ROOT.RooDataSet('ds_2', 'x-y-data', tree_2, ROOT.RooArgSet(x, y))
+    ds_2 = root.RooDataSet('ds_2', 'x-y-data', tree_2, root.RooArgSet(x, y))
     cat.setLabel('data_recessive')
     ds_2.addColumn(cat)
     ds.append(ds_2)
 
 
     # set fitting model
-    meanx1 = ROOT.RooRealVar('meanx1', 'meanx1', mean_x_1, mean_x_1-150.0, mean_x_1+150.0)
-    meany1 = ROOT.RooRealVar('meany1', 'meany1', mean_y_1, mean_y_1-150.0, mean_y_1+150.0)
+    meanx1 = root.RooRealVar('meanx1', 'meanx1', mean_x_1, mean_x_1-150.0, mean_x_1+150.0)
+    meany1 = root.RooRealVar('meany1', 'meany1', mean_y_1, mean_y_1-150.0, mean_y_1+150.0)
 
-    meanx2 = ROOT.RooRealVar('meanx2', 'meanx2', mean_x_2, mean_x_2-150.0, mean_x_2+150.0)
-    meany2 = ROOT.RooRealVar('meany2', 'meany2', mean_y_2, mean_y_2-150.0, mean_y_2+150.0)
+    meanx2 = root.RooRealVar('meanx2', 'meanx2', mean_x_2, mean_x_2-150.0, mean_x_2+150.0)
+    meany2 = root.RooRealVar('meany2', 'meany2', mean_y_2, mean_y_2-150.0, mean_y_2+150.0)
 
     if sigma_dominant_peak['fixed'] == True:
-        sigmax = ROOT.RooRealVar('sigmax', 'sigmax', float(sigma_dominant_peak['sigmax']))
-        sigmay = ROOT.RooRealVar('sigmay', 'sigmay', float(sigma_dominant_peak['sigmay']))
+        sigmax = root.RooRealVar('sigmax', 'sigmax', float(sigma_dominant_peak['sigmax']))
+        sigmay = root.RooRealVar('sigmay', 'sigmay', float(sigma_dominant_peak['sigmay']))
         sigmax.setConstant(True)
         sigmay.setConstant(True)
     else:
-        sigmax = ROOT.RooRealVar('sigmax', 'sigmax', 50.0, 10.0, 100.0)
-        sigmay = ROOT.RooRealVar('sigmay', 'sigmay', 50.0, 10.0, 100.0)
+        sigmax = root.RooRealVar('sigmax', 'sigmax', 50.0, 10.0, 100.0)
+        sigmay = root.RooRealVar('sigmay', 'sigmay', 50.0, 10.0, 100.0)
 
-    gaussx1 = ROOT.RooGaussian('gaussx1', 'Gaussian distribution', x, meanx1, sigmax)
-    gaussy1 = ROOT.RooGaussian('gaussy1', 'Gaussian distribution', y, meany1, sigmay)
-    g1 = ROOT.RooProdPdf('g1', 'gx*gy1', ROOT.RooArgList(gaussx1,gaussy1))
-    gaussx2 = ROOT.RooGaussian('gaussx1', 'Gaussian distribution', x, meanx2, sigmax)
-    gaussy2 = ROOT.RooGaussian('gaussy1', 'Gaussian distribution', y, meany2, sigmay)
-    g2 = ROOT.RooProdPdf('g2', 'gx*gy2', ROOT.RooArgList(gaussx2,gaussy2))
+    gaussx1 = root.RooGaussian('gaussx1', 'Gaussian distribution', x, meanx1, sigmax)
+    gaussy1 = root.RooGaussian('gaussy1', 'Gaussian distribution', y, meany1, sigmay)
+    g1 = root.RooProdPdf('g1', 'gx*gy1', root.RooArgList(gaussx1,gaussy1))
+    gaussx2 = root.RooGaussian('gaussx1', 'Gaussian distribution', x, meanx2, sigmax)
+    gaussy2 = root.RooGaussian('gaussy1', 'Gaussian distribution', y, meany2, sigmay)
+    g2 = root.RooProdPdf('g2', 'gx*gy2', root.RooArgList(gaussx2,gaussy2))
 
-    simPdf = ROOT.RooSimultaneous('simPdf', 'Simultaneous PDF', cat)
+    simPdf = root.RooSimultaneous('simPdf', 'Simultaneous PDF', cat)
     simPdf.addPdf(g1, 'data_dominant')
     simPdf.addPdf(g2, 'data_recessive')
 
-    # two_gauss = ROOT.RooAddPdf('2g', 'g1+g2', ROOT.RooArgList(gaussxy1,gaussxy2))
+    # two_gauss = root.RooAddPdf('2g', 'g1+g2', root.RooArgList(gaussxy1,gaussxy2))
     # two_gauss.Print()
 
 
     # actual fit:
-    result = simPdf.fitTo(ds, ROOT.RooFit.Minos(1), ROOT.RooFit.Save(), ROOT.RooFit.PrintLevel(-1), ROOT.RooFit.Verbose(False)) # , ROOT.RooFit.NumCPU(4))
+    result = simPdf.fitTo(ds, root.RooFit.Minos(1), root.RooFit.Save(), root.RooFit.PrintLevel(-1), root.RooFit.Verbose(False)) # , root.RooFit.NumCPU(4))
 
 
     # fit results
@@ -1788,17 +1780,17 @@ def two_spot_fit_root(file_name, all_peak_positions, mean_x_1, mean_y_1, mean_x_
 
 
     if pll_plot == 'yes' and plot_fit == 'yes':
-        c4 = ROOT.TCanvas('c4', 'results', 1000, 700)
+        c4 = root.TCanvas('c4', 'results', 1000, 700)
         c4.Divide(2, 2)
 
 
         # plot nll's
         c4.cd(1)
-        nllx1 = simPdf.createNLL(ds) # , ROOT.RooFit.NumCPU(4))
-        profile_llmeanx1 = nllx1.createProfile(ROOT.RooArgSet(meanx1))
-        pllframex1 = meanx1.frame()#ROOT.RooFit.Range(x_pos_1-3*x_sigma, x_pos_1+3*x_sigma))
-        nllx1.plotOn(pllframex1, ROOT.RooFit.ShiftToZero())
-        profile_llmeanx1.plotOn(pllframex1, ROOT.RooFit.LineColor(ROOT.kRed))
+        nllx1 = simPdf.createNLL(ds) # , root.RooFit.NumCPU(4))
+        profile_llmeanx1 = nllx1.createProfile(root.RooArgSet(meanx1))
+        pllframex1 = meanx1.frame()#root.RooFit.Range(x_pos_1-3*x_sigma, x_pos_1+3*x_sigma))
+        nllx1.plotOn(pllframex1, root.RooFit.ShiftToZero())
+        profile_llmeanx1.plotOn(pllframex1, root.RooFit.LineColor(root.kRed))
         pllframex1.SetTitle('LL and profileLL in x position (dominant)')
         pllframex1.SetXTitle('channels')
         pllframex1.SetYTitle('projection of -log(likelihood)')
@@ -1808,11 +1800,11 @@ def two_spot_fit_root(file_name, all_peak_positions, mean_x_1, mean_y_1, mean_x_
 
 
         c4.cd(2)
-        nlly1 = simPdf.createNLL(ds) # , ROOT.RooFit.NumCPU(4))
-        profile_llmeany1 = nlly1.createProfile(ROOT.RooArgSet(meany1))
-        pllframey1 = meany1.frame()#ROOT.RooFit.Range(y_pos_1-3*y_sigma, y_pos_1+3*y_sigma))
-        nlly1.plotOn(pllframey1, ROOT.RooFit.ShiftToZero())
-        profile_llmeany1.plotOn(pllframey1, ROOT.RooFit.LineColor(ROOT.kRed))
+        nlly1 = simPdf.createNLL(ds) # , root.RooFit.NumCPU(4))
+        profile_llmeany1 = nlly1.createProfile(root.RooArgSet(meany1))
+        pllframey1 = meany1.frame()#root.RooFit.Range(y_pos_1-3*y_sigma, y_pos_1+3*y_sigma))
+        nlly1.plotOn(pllframey1, root.RooFit.ShiftToZero())
+        profile_llmeany1.plotOn(pllframey1, root.RooFit.LineColor(root.kRed))
         pllframey1.SetTitle('LL and profileLL in y position (dominant)')
         pllframey1.SetXTitle('channels')
         pllframey1.SetYTitle('projection of -log(likelihood)')
@@ -1822,11 +1814,11 @@ def two_spot_fit_root(file_name, all_peak_positions, mean_x_1, mean_y_1, mean_x_
 
 
         c4.cd(3)
-        nllx2 = simPdf.createNLL(ds) # , ROOT.RooFit.NumCPU(4))
-        profile_llmeanx2 = nllx2.createProfile(ROOT.RooArgSet(meanx2))
-        pllframex2 = meanx2.frame()#ROOT.RooFit.Range(x_pos_2-3*x_sigma, x_pos_2+3*x_sigma))
-        nllx2.plotOn(pllframex2, ROOT.RooFit.ShiftToZero())
-        profile_llmeanx2.plotOn(pllframex2, ROOT.RooFit.LineColor(ROOT.kRed))
+        nllx2 = simPdf.createNLL(ds) # , root.RooFit.NumCPU(4))
+        profile_llmeanx2 = nllx2.createProfile(root.RooArgSet(meanx2))
+        pllframex2 = meanx2.frame()#root.RooFit.Range(x_pos_2-3*x_sigma, x_pos_2+3*x_sigma))
+        nllx2.plotOn(pllframex2, root.RooFit.ShiftToZero())
+        profile_llmeanx2.plotOn(pllframex2, root.RooFit.LineColor(root.kRed))
         pllframex2.SetTitle('LL and profileLL in x position (recessive)')
         pllframex2.SetXTitle('channels')
         pllframex2.SetYTitle('projection of -log(likelihood)')
@@ -1836,11 +1828,11 @@ def two_spot_fit_root(file_name, all_peak_positions, mean_x_1, mean_y_1, mean_x_
 
 
         c4.cd(4)
-        nlly2 = simPdf.createNLL(ds) # , ROOT.RooFit.NumCPU(4))
-        profile_llmeany2 = nlly2.createProfile(ROOT.RooArgSet(meany2))
-        pllframey2 = meany2.frame()#ROOT.RooFit.Range(y_pos_2-3*y_sigma, y_pos_2+3*y_sigma))
-        nlly2.plotOn(pllframey2, ROOT.RooFit.ShiftToZero())
-        profile_llmeany2.plotOn(pllframey2, ROOT.RooFit.LineColor(ROOT.kRed))
+        nlly2 = simPdf.createNLL(ds) # , root.RooFit.NumCPU(4))
+        profile_llmeany2 = nlly2.createProfile(root.RooArgSet(meany2))
+        pllframey2 = meany2.frame()#root.RooFit.Range(y_pos_2-3*y_sigma, y_pos_2+3*y_sigma))
+        nlly2.plotOn(pllframey2, root.RooFit.ShiftToZero())
+        profile_llmeany2.plotOn(pllframey2, root.RooFit.LineColor(root.kRed))
         pllframey2.SetTitle('LL and profileLL in y position (recessive)')
         pllframey2.SetXTitle('channels')
         pllframey2.SetYTitle('projection of -log(likelihood)')

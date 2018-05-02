@@ -47,7 +47,7 @@ def folder_creation_analysis(folder_name, isotopes):
 
             for j in txt_files:
                 if i in j:
-                    if '_c' in j:   # move center files
+                    if '_c_' in j:   # move center files
                         shutil.move(folder_name+'\\'+j, folder_name+'\\'+i+'\\c\\'+j)
                     else:          # move p1p2 files
                         if os.path.isfile(folder_name+'\\'+j) == True:

@@ -321,7 +321,7 @@ class Ui_MainWindow(object):
         self.load.setText(_translate("MainWindow", "Load"))
         self.run.setText(_translate("MainWindow", "Run"))
         self.label.setText(_translate("MainWindow", "Enter isotopes here:"))
-        self.checkBox.setText(_translate("MainWindow", "Isotope analysis: simultaneous 2D gaussian fit for both ground and isomer (P2 spot)"))
+        self.checkBox.setText(_translate("MainWindow", "Isomer analysis: simultaneous 2D gaussian fit for both ground and isomer (P2 spot)"))
         self.checkBox_ellipse.setText(_translate("MainWindow", "Manual spot selection (Click+hold ellipse selector)"))
         self.tabWidget_2.setTabText(self.tabWidget_2.indexOf(self.tab), _translate("MainWindow", "Batch"))
         self.label_10.setText(_translate("MainWindow", "PI-ICR spot reconstruction and frequency calculation V2.1:\n"

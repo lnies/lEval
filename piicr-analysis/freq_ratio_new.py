@@ -758,8 +758,9 @@ if __name__ == '__main__':
         mm_ratio.extrapolation(json_folder)
     elif mode == 'single_ToF_ICR':
         # run_folder = '/Users/jonaskarthein/cernbox/Analysis/MirrorNuclei/poly_fit_all/'
-        run_folder = '/Users/jonaskarthein/cernbox/Analysis/MirrorNuclei/poly_fit_partial/21-part1/'
-        isotopes = ['21Ne', '21Na']
+        # run_folder = '/Users/jonaskarthein/cernbox/Analysis/MirrorNuclei/poly_fit_partial/21-part1/'
+        run_folder = '/Volumes/2018/2018-04-Sc_run/pi_icr/2018-04-29_101In-82Sr19F/analyzed/cross-checks/poly_fit/'
+        isotopes = ['101In_m', '101SrF']
         # isotopes = ['23Na', '23Mg']
         # mm_ratio.get_data_tof_icr(run_folder, isotopes)
         mm_ratio.main(run_folder=run_folder, isotopes=isotopes, degree=2, single_or_batch=mode, z_classes=z_classes)
