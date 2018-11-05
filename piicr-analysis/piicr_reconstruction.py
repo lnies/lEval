@@ -264,9 +264,9 @@ def piicr_daq(data_folder_path, axis_scaling_factor, dont_show, pattern, sigma, 
                 nice_plots_but_problems_in_fitting = 0  # This procedure allows plotting both a 2Dhistogram of the detector picture as well as a zoomed image for better fitting.
                 # H, xedges, yedges, xs, ys = histo2D(spot_positions, file_name, pattern, 1, hist2d_min_max, nice_plots_but_problems_in_fitting, bins, hist2d_spines_off, axis_scaling_factor, dont_show, color_map)
 
-                if trigger_on_off == 1 and one_or_two_peaks_to_fit == 'one':
+                # if trigger_on_off == 1 and one_or_two_peaks_to_fit == 'one':
                    # tof_plot(spot_positions, 50, file_name, dont_show)
-                   ion_cloud_3d(spot_positions, axis_scaling_factor, dont_show, file_name)
+                   # ion_cloud_3d(spot_positions, axis_scaling_factor, dont_show, file_name)
 
         # ------------------------
         # Simple plot if wanted
@@ -333,8 +333,8 @@ def piicr_daq(data_folder_path, axis_scaling_factor, dont_show, pattern, sigma, 
                         fit_range_new = [mean_x-200, mean_x+200, mean_y-200, mean_y+200]
 
                         first_fit_info = spot_fit_root(file_name, spot_positions, all_peak_positions, mean_x, mean_y, fit_range_new, 'no', 'no', 1, FWHM_parameter_fix_dict)
-                        second_fit_info = spot_fit_root(file_name, spot_positions, all_peak_positions, first_fit_info[1], first_fit_info[3], [first_fit_info[1] - 1.8 * first_fit_info[5], first_fit_info[1] + 1.8 * first_fit_info[5], first_fit_info[3] - 1.8 * first_fit_info[7], first_fit_info[3] + 1.8 * first_fit_info[7]], 'no', 'no', 2, FWHM_parameter_fix_dict)
-                        all_peak_positions.append(spot_fit_root(file_name, spot_positions, all_peak_positions, second_fit_info[1], second_fit_info[3], [second_fit_info[1] - 1.8 * second_fit_info[5], second_fit_info[1] + 1.8 * second_fit_info[5], second_fit_info[3] - 1.8 * second_fit_info[7], second_fit_info[3] + 1.8 * second_fit_info[7]], 'no', 'yes', 3, FWHM_parameter_fix_dict))
+                        second_fit_info = spot_fit_root(file_name, spot_positions, all_peak_positions, first_fit_info[1], first_fit_info[3], [first_fit_info[1] - 3.0 * first_fit_info[5], first_fit_info[1] + 3.0 * first_fit_info[5], first_fit_info[3] - 3.0 * first_fit_info[7], first_fit_info[3] + 3.0 * first_fit_info[7]], 'no', 'no', 2, FWHM_parameter_fix_dict)
+                        all_peak_positions.append(spot_fit_root(file_name, spot_positions, all_peak_positions, second_fit_info[1], second_fit_info[3], [second_fit_info[1] - 3.0 * second_fit_info[5], second_fit_info[1] + 3.0 * second_fit_info[5], second_fit_info[3] - 3.0 * second_fit_info[7], second_fit_info[3] + 3.0 * second_fit_info[7]], 'no', 'yes', 3, FWHM_parameter_fix_dict))
                     else:
                         all_peak_positions.append(spot_fit_root(file_name, spot_positions, all_peak_positions, mean_x, mean_y, fit_range, nll_plot, 'yes', 0, FWHM_parameter_fix_dict))
 
@@ -362,7 +362,7 @@ def piicr_daq(data_folder_path, axis_scaling_factor, dont_show, pattern, sigma, 
                     spot_positions_polar = [['Event #', 'Radius / mm', 'Angle / radian', 'ToF / ns'], [all_peak_positions[-1][1], all_peak_positions[-1][3]]]
                     for j in range(len(r_polar)):
                         spot_positions_polar.append([spot_positions[j][0], float(r_polar[j]) * axis_scaling_factor, phi_polar[j], spot_positions[j][3]])
-                    write_csv(data_folder_path, spot_positions_polar, '%s_spot_positions_polar' % (file_name))
+                    # write_csv(data_folder_path, spot_positions_polar, '%s_spot_positions_polar' % (file_name))
 
 
 
@@ -501,9 +501,9 @@ def piicr_daq(data_folder_path, axis_scaling_factor, dont_show, pattern, sigma, 
                         nice_plots_but_problems_in_fitting = 0  # This procedure allows plotting both a 2Dhistogram of the detector picture as well as a zoomed image for better fitting.
                         # H, xedges, yedges, xs, ys = histo2D(spot_positions, hilf_file_name, pattern, 1, hist2d_min_max, nice_plots_but_problems_in_fitting, bins, hist2d_spines_off, axis_scaling_factor, dont_show, color_map)
 
-                        if trigger_on_off == 1:
+                        # if trigger_on_off == 1:
                             # tof_plot(spot_positions, bins, hilf_file_name, dont_show)
-                            ion_cloud_3d(spot_positions, axis_scaling_factor, dont_show, hilf_file_name)
+                            # ion_cloud_3d(spot_positions, axis_scaling_factor, dont_show, hilf_file_name)
                 # ------------------------
                 # Simple plot if wanted
                 # ------------------------
@@ -548,8 +548,8 @@ def piicr_daq(data_folder_path, axis_scaling_factor, dont_show, pattern, sigma, 
                                 fit_range_new = [mean_x-200, mean_x+200, mean_y-200, mean_y+200]
 
                                 first_fit_info = spot_fit_root(file_name, spot_positions, all_peak_positions, mean_x, mean_y, fit_range_new, 'no', 'no', 1, FWHM_parameter_fix_dict)
-                                second_fit_info = spot_fit_root(file_name, spot_positions, all_peak_positions, first_fit_info[1], first_fit_info[3], [first_fit_info[1] - 1.8 * first_fit_info[5], first_fit_info[1] + 1.8 * first_fit_info[5], first_fit_info[3] - 1.8 * first_fit_info[7], first_fit_info[3] + 1.8 * first_fit_info[7]], 'no', 'no', 2, FWHM_parameter_fix_dict)
-                                all_peak_positions.append(spot_fit_root(file_name, spot_positions, all_peak_positions, second_fit_info[1], second_fit_info[3], [second_fit_info[1] - 1.8 * second_fit_info[5], second_fit_info[1] + 1.8 * second_fit_info[5], second_fit_info[3] - 1.8 * second_fit_info[7], second_fit_info[3] + 1.8 * second_fit_info[7]], 'no', 'yes', 3, FWHM_parameter_fix_dict))
+                                second_fit_info = spot_fit_root(file_name, spot_positions, all_peak_positions, first_fit_info[1], first_fit_info[3], [first_fit_info[1] - 3.0 * first_fit_info[5], first_fit_info[1] + 3.0 * first_fit_info[5], first_fit_info[3] - 3.0 * first_fit_info[7], first_fit_info[3] + 3.0 * first_fit_info[7]], 'no', 'no', 2, FWHM_parameter_fix_dict)
+                                all_peak_positions.append(spot_fit_root(file_name, spot_positions, all_peak_positions, second_fit_info[1], second_fit_info[3], [second_fit_info[1] - 3.0 * second_fit_info[5], second_fit_info[1] + 3.0 * second_fit_info[5], second_fit_info[3] - 3.0 * second_fit_info[7], second_fit_info[3] + 3.0 * second_fit_info[7]], 'no', 'yes', 3, FWHM_parameter_fix_dict))
                             else:
                                 all_peak_positions.append(spot_fit_root(file_name, spot_positions, all_peak_positions, mean_x, mean_y, fit_range, nll_plot, 'yes', 0, FWHM_parameter_fix_dict))
 
@@ -575,7 +575,7 @@ def piicr_daq(data_folder_path, axis_scaling_factor, dont_show, pattern, sigma, 
                         spot_positions_polar = [['Event #', 'Radius / mm', 'Angle / radian', 'ToF / ns'], [all_peak_positions[-1][1], all_peak_positions[-1][3]]]
                         for j in range(len(r_polar)):
                             spot_positions_polar.append([spot_positions[j][0], float(r_polar[j]) * axis_scaling_factor, phi_polar[j], spot_positions[j][3]])
-                        write_csv(data_folder_path, spot_positions_polar, '%s_spot_positions_polar' % (file_name))
+                        # write_csv(data_folder_path, spot_positions_polar, '%s_spot_positions_polar' % (file_name))
 
 
     # ------------------------

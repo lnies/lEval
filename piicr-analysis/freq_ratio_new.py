@@ -8,13 +8,19 @@ import sys, os
 import glob
 import json#simplejson as json
 import csv
+import re
+import ROOT
+import lmfit
+import matplotlib.dates as mdates
+from matplotlib.ticker import (MultipleLocator, FormatStrFormatter, AutoMinorLocator)
 
 
-class MM_ratio():
+class Freq_ratio():
     # class to calculate the frequency ratio for a mass measurement (MM), optimized for ISOLTRAP PI-ICR data
+    # cite LMFIT via https://dx.doi.org/10.5281/zenodo.11813
     def __init__(self):
         self.degree = 3
-        self.param_start = [1, 1, 1]
+        self.param_start = [1]*(self.degree+2)
         self.param_result = []
         self.y1df = {}
         self.y1names = []
@@ -54,6 +60,8 @@ class MM_ratio():
         self.lin_extrapolation = False
         self.mode = ''
 
+        self.test = False
+
 
     def batch(self, upper_run_folder, isotopes, degree=3, z_classes=['Z1-1']):
         for z in z_classes:
@@ -78,9 +86,9 @@ class MM_ratio():
     def main(self, isotopes, run_folder, degree=3, single_or_batch='single', z_classes='Z1-1'):
         self.degree = degree
         self.get_start_param()
-        if single_or_batch == 'single_ToF_ICR':
+        if single_or_batch == 'single_easy':
             self.get_data_tof_icr(run_folder, isotopes)
-            self.mode = 'single_ToF_ICR'
+            self.mode = 'single_easy'
         else:
             self.set_folders(run_folder, isotopes)
             self.get_data()
@@ -111,6 +119,32 @@ class MM_ratio():
         if single_or_batch == 'single':
             self.save_update(z_classes)
         self.lin_extrapolation = False
+
+
+    def fill_tree(self):
+        f = ROOT.TFile.Open('{}{}-{}.root'.format(self.run_folder, self.isotopes[0], self.isotopes[1]), 'recreate')
+        tree_name = '{}{}'.format(self.isotopes[0], self.isotopes[1])
+        tree = ROOT.TTree('{}{}'.format(self.isotopes[0], self.isotopes[1]), '{}{}'.format(self.isotopes[0], self.isotopes[1]))
+        tmp_data = np.empty((3,1), dtype=float)
+        x1_list = self.x1
+        y1_list = self.y1
+        y1err_list = self.y1err
+        # x2_list = self.x2
+        # y2_list = self.y2
+        # y2err_list = self.y2err
+        tree.Branch('data', tmp_data, 'x1/D:y1/D:y1err/D')
+        # tree.Branch('data', tmp_data, 'x2/D:y2/D:y2err/D')
+        for i in range(len(x1_list)):
+            tmp_data[0][0] = x1_list[i]
+            tmp_data[1][0] = y1_list[i]
+            tmp_data[2][0] = y1err_list[i]
+            # tmp_data[0][0] = x2_list[i]
+            # tmp_data[1][0] = y2_list[i]
+            # tmp_data[2][0] = y2err_list[i]
+            tree.Fill()
+        tree.Print()
+        tree.Write()
+        f.Close()
 
 
     def merge_single(self, upper_z_folder, isotopes):
@@ -144,24 +178,17 @@ class MM_ratio():
         self.x1helpfolder = run_folder+isotopes[0]+'/p1p2/'
         self.x2helpfolder = run_folder+isotopes[1]+'/p1p2/'
         self.y1folder = run_folder+isotopes[0]+'/piicr_cyc_freq_'+isotopes[0]+'.csv'
-        self.y2folder = run_folder+isotopes[1]+'/piicr_cyc_freq_'+isotopes[1]+'_ground.csv'
+        self.y2folder = run_folder+isotopes[1]+'/piicr_cyc_freq_'+isotopes[1]+'.csv'#'_ground.csv'
 
     def get_start_param(self):
-        if self.degree == 1:
-            self.param_start = [1,1,1]
-        elif self.degree == 2:
-            self.param_start = [1,1,1,1]
-        elif self.degree == 3:
-            self.param_start = [1,1,1,1,1]
-        elif self.degree == 4:
-            self.param_start = [1,1,1,1,1,1]
-        elif self.degree == 5:
-            self.param_start = [1,1,1,1,1,1,1]
-        elif self.degree == 6:
-            self.param_start = [1,1,1,1,1,1,1,1]
-        elif self.degree == 7:
-            self.param_start = [1,1,1,1,1,1,1,1,1]
-
+        if self.test:
+            self.param_start = lmfit.Parameters()
+            for i in range(self.degree+2):
+                self.param_start.add('param{}'.format(i), value=1, max=1, min=-1)
+            self.param_start['param1'].max = 5000000
+            # self.param_start.append(1)
+        else:
+            self.param_start = [1]*(self.degree+2)
 
     def get_data_tof_icr(self, run_folder, isotopes):
         # bla
@@ -262,45 +289,66 @@ class MM_ratio():
     def fit(self):
 
         if self.lin_extrapolation == False:
-            # fit ; timestampt value is reduced since resulting numbers were too large
-            iter1, covar, infodict, mesg, ier = scipy.optimize.leastsq(self.simultaneous_residual, self.param_start,
-                                                            args=(np.array(self.x1),
-                                                                  np.array(self.x2),
-                                                                  np.array(self.y1),
-                                                                  np.array(self.y2),
-                                                                  np.array(self.y1err),
-                                                                  np.array(self.y2err)), full_output=True)
-            iter2, covar, infodict, mesg, ier = scipy.optimize.leastsq(self.simultaneous_residual, iter1,
-                                                            args=(np.array(self.x1),
-                                                                  np.array(self.x2),
-                                                                  np.array(self.y1),
-                                                                  np.array(self.y2),
-                                                                  np.array(self.y1err),
-                                                                  np.array(self.y2err)), full_output=True)
-            iter3, covar, infodict, mesg, ier = scipy.optimize.leastsq(self.simultaneous_residual, iter2,
-                                                            args=(np.array(self.x1),
-                                                                  np.array(self.x2),
-                                                                  np.array(self.y1),
-                                                                  np.array(self.y2),
-                                                                  np.array(self.y1err),
-                                                                  np.array(self.y2err)), full_output=True)
-            iter4, covar, infodict, mesg, ier = scipy.optimize.leastsq(self.simultaneous_residual, iter3,
-                                                            args=(np.array(self.x1),
-                                                                  np.array(self.x2),
-                                                                  np.array(self.y1),
-                                                                  np.array(self.y2),
-                                                                  np.array(self.y1err),
-                                                                  np.array(self.y2err)), full_output=True)
-            self.param_result, self.covar, infodict, mesg, ier = scipy.optimize.leastsq(self.simultaneous_residual, iter4,
-                                                            args=(np.array(self.x1),
-                                                                  np.array(self.x2),
-                                                                  np.array(self.y1),
-                                                                  np.array(self.y2),
-                                                                  np.array(self.y1err),
-                                                                  np.array(self.y2err)), full_output=True)
-            if ier not in [1,2,3,4]:
-                sys.exit('Fit did not converge')
+            self.fill_tree()
 
+            if self.test:
+                out = lmfit.minimize(self.simultaneous_residual, self.param_start,
+                                     args=(np.array(self.x1),
+                                           np.array(self.x2),
+                                           np.array(self.y1),
+                                           np.array(self.y2),
+                                           np.array(self.y1err),
+                                           np.array(self.y2err)))
+                print out.params.pretty_print()
+                print out.status.pretty_print()
+                # print out.covar
+                print out.redchi#.pretty_print()
+                # print 'aic'
+                # print out.aic.pretty_print()
+
+                sys.exit('test')
+            else:
+                # fit ; timestampt value is reduced since resulting numbers were too large
+                iter1, covar, infodict, mesg, ier = scipy.optimize.leastsq(self.simultaneous_residual, self.param_start,
+                                                                args=(np.array(self.x1),
+                                                                      np.array(self.x2),
+                                                                      np.array(self.y1),
+                                                                      np.array(self.y2),
+                                                                      np.array(self.y1err),
+                                                                      np.array(self.y2err)), full_output=True)#, maxfev=1000000
+                iter2, covar, infodict, mesg, ier = scipy.optimize.leastsq(self.simultaneous_residual, iter1,
+                                                                args=(np.array(self.x1),
+                                                                      np.array(self.x2),
+                                                                      np.array(self.y1),
+                                                                      np.array(self.y2),
+                                                                      np.array(self.y1err),
+                                                                      np.array(self.y2err)), full_output=True)
+                iter3, covar, infodict, mesg, ier = scipy.optimize.leastsq(self.simultaneous_residual, iter2,
+                                                                args=(np.array(self.x1),
+                                                                      np.array(self.x2),
+                                                                      np.array(self.y1),
+                                                                      np.array(self.y2),
+                                                                      np.array(self.y1err),
+                                                                      np.array(self.y2err)), full_output=True)
+                iter4, covar, infodict, mesg, ier = scipy.optimize.leastsq(self.simultaneous_residual, iter3,
+                                                                args=(np.array(self.x1),
+                                                                      np.array(self.x2),
+                                                                      np.array(self.y1),
+                                                                      np.array(self.y2),
+                                                                      np.array(self.y1err),
+                                                                      np.array(self.y2err)), full_output=True)
+                self.param_result, self.covar, infodict, mesg, ier = scipy.optimize.leastsq(self.simultaneous_residual, iter4,
+                                                                args=(np.array(self.x1),
+                                                                      np.array(self.x2),
+                                                                      np.array(self.y1),
+                                                                      np.array(self.y2),
+                                                                      np.array(self.y1err),
+                                                                      np.array(self.y2err)), full_output=True)
+                if ier not in [1,2,3,4]:
+                    sys.exit('Fit did not converge')
+
+                # print self.param_result
+                # print self.covar
 
         else:
             init_vals = [((max(self.y1)-min(self.y1))
@@ -326,103 +374,47 @@ class MM_ratio():
                                        absolute_sigma=True,
                                        p0=fit_4)
 
+
     def fit_function(self, x, param):
         # defines the polinomial function
-        if self.degree == 1:
-            a, b, c = param
-            return a * x + b
-        elif self.degree == 2:
-            a, b, c = param
-            return a * x**2 + b * x + c
-        elif self.degree == 3:
-            a, b, c, d = param
-            return a * x**3 + b * x**2 + c * x + d
-        elif self.degree == 4:
-            a, b, c, d, e = param
-            return a * x**4 + b * x**3 + c * x**2 + d * x + e
-        elif self.degree == 5:
-            a, b, c, d, e, f = param
-            return a * x**5 + b * x**4 + c * x**3 + d * x**2 + e * x + f
-        elif self.degree == 6:
-            a, b, c, d, e, f, g = param
-            return a * x**6 + b * x**5 + c * x**4 + d * x**3 + e * x**2 + f * x + g
-        elif self.degree == 7:
-            a, b, c, d, e, f, g, h = param
-            return a * x**7 + b * x**6 + c * x**5 + d * x**4 + e * x**3 + f * x**2 + g * x + h
+        return(np.polyval(list(param), x))  # returns a polynomial function of degree len(param)-1 evaluated at x
 
 
     def residual(self, p, x, y, yerr):
         # returns residual, which square is minimized later
         return (self.fit_function(x, p) - y )/yerr
 
+
     def simultaneous_residual(self, param_start, x1, x2, y1, y2, y1err, y2err):
         # calculate residuals for both datasets
-        p_s = param_start       # reduce word length
-        if self.degree == 1:
-            p1 = p_s[0], p_s[1]
-            p2 = p_s[0], p_s[2]
-        elif self.degree == 2:
-            p1 = p_s[0], p_s[1], p_s[2]
-            p2 = p_s[0], p_s[1], p_s[3]
-        elif self.degree == 3:
-            p1 = p_s[0], p_s[1], p_s[2], p_s[3]
-            p2 = p_s[0], p_s[1], p_s[2], p_s[4]
-        elif self.degree == 4:
-            p1 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[4]
-            p2 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[5]
-        elif self.degree == 5:
-            p1 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[4], p_s[5]
-            p2 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[4], p_s[6]
-        elif self.degree == 6:
-            p1 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[4], p_s[5], p_s[6]
-            p2 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[4], p_s[6], p_s[7]
-        elif self.degree == 7:
-            p1 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[4], p_s[5], p_s[6], p_s[7]
-            p2 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[4], p_s[6], p_s[7], p_s[8]
-
+        # print len(param_start),'\n\n\n', [len(param_start) - 1 - j for j in range(len(param_start))]
+        if self.test:
+            p_s = [param_start['param{}'.format(i)] for i in [len(param_start) - 1 - j for j in range(len(param_start))]]
+        else:
+            p_s = param_start
+        p1 = p_s[:-1]  # Poly1 = R*Poly2
+        p2 = [float(i)/p_s[-1] for i in p_s[:-1]]  # Poly1 = R*Poly2
         res1 = self.residual(p1, x1, y1, y1err)
         res2 = self.residual(p2, x2, y2, y2err)
         return np.concatenate((res1, res2))
 
 
     def final_residual_1(self, param_start, x1, y1, y1err):
-        p_s = param_start       # reduce word length
-        if self.degree == 1:
-            p1 = p_s[0], p_s[1]
-        elif self.degree == 2:
-            p1 = p_s[0], p_s[1], p_s[2]
-        elif self.degree == 3:
-            p1 = p_s[0], p_s[1], p_s[2], p_s[3]
-        elif self.degree == 4:
-            p1 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[4]
-        elif self.degree == 5:
-            p1 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[4], p_s[5]
-        elif self.degree == 6:
-            p1 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[4], p_s[5], p_s[6]
-        elif self.degree == 7:
-            p1 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[4], p_s[5], p_s[6], p_s[7]
-
+        if self.test:
+            p_s = [param_start['param{}'.format(i)] for i in [len(param_start) - 1 - j for j in range(len(param_start))]]
+        else:
+            p_s = param_start
+        p1 = p_s[:-1]  # Poly1 = R*Poly2
         res1 = self.residual(p1, x1, y1, y1err)
         return(res1)
 
 
     def final_residual_2(self, param_start, x2, y2, y2err):
-        p_s = param_start       # reduce word length
-        if self.degree == 1:
-            p2 = p_s[0], p_s[2]
-        elif self.degree == 2:
-            p2 = p_s[0], p_s[1], p_s[3]
-        elif self.degree == 3:
-            p2 = p_s[0], p_s[1], p_s[2], p_s[4]
-        elif self.degree == 4:
-            p2 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[5]
-        elif self.degree == 5:
-            p2 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[4], p_s[6]
-        elif self.degree == 6:
-            p2 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[4], p_s[6], p_s[7]
-        elif self.degree == 7:
-            p2 = p_s[0], p_s[1], p_s[2], p_s[3], p_s[4], p_s[6], p_s[7], p_s[8]
-
+        if self.test:
+            p_s = [param_start['param{}'.format(i)] for i in [len(param_start) - 1 - j for j in range(len(param_start))]]
+        else:
+            p_s = param_start
+        p2 = [float(i)/p_s[-1] for i in p_s[:-1]]  # Poly1 = R*Poly2
         res2 = self.residual(p2, x2, y2, y2err)
         return(res2)
 
@@ -440,13 +432,9 @@ class MM_ratio():
     def ratio_calc(self):
         # calculates the ratio in the middle of the range of interest
         if self.lin_extrapolation == False:
-            self.ratio = self.param_result[-2]/self.param_result[-1]
+            self.ratio = self.param_result[-1]
 
-            self.ratio_unc = np.sqrt(((self.param_result_err[-2] ** 2) / (self.param_result[-1] ** 2))
-                                     + (2 * (1 / self.param_result[-1]) * (- self.param_result[-2]
-                                     / (self.param_result[-1] ** 2)) * self.correlation)      # correllation term
-                                     + (((self.param_result_err[-1] * (- self.param_result[-2]))
-                                         / (self.param_result[-1] ** 2)) ** 2))
+            self.ratio_unc = self.param_result_err[-1]
 
             print 'Degree:              ', self.degree
         else:
@@ -472,12 +460,21 @@ class MM_ratio():
         mpl.rc('text', usetex=False)
 
         f, (ax, ax2) = plt.subplots(2, 1, sharex=True, figsize=(9,6))
-        plt.xlabel('datetime', fontsize=22)
-        plt.ylabel(' ', fontsize=22)        # makes space for the actual label (next line...)
-        f.text(0.03,0.55, 'frequency / Hz', ha='center', va='center', rotation=90, fontsize=22)
+        plt.xlabel('time', fontsize=22, fontweight='bold')
+        plt.ylabel('     ', fontsize=22, fontweight='bold')        # makes space for the actual label (next line...)
+        f.text(0.03,0.55, 'frequency (Hz)', ha='center', va='center', rotation=90, fontsize=22, fontweight='bold')
 
         l1 = ax.errorbar(x1, self.y1, yerr=self.y1err, fmt='o', label='{}'.format(self.isotopes[0]))
         l2 = ax2.errorbar(x2, self.y2, yerr=self.y2err, fmt='g o', label='{}'.format(self.isotopes[1]))
+        # save data to file
+        # data1 = [[self.y1[i], self.y1err[i], x1[i].strftime('%m/%d/%y %H:%M')] for i in range(len(x1))]
+        # data2 = [[self.y2[i], self.y2err[i], x2[i].strftime('%m/%d/%y %H:%M')] for i in range(len(x2))]
+        # with open('{}{}.csv'.format(self.run_folder, self.isotopes[0]), 'wb') as f:
+        #     writer = csv.writer(f)
+        #     writer.writerows(data1)
+        # with open('{}{}.csv'.format(self.run_folder, self.isotopes[1]), 'wb') as f:
+        #     writer = csv.writer(f)
+        #     writer.writerows(data2)
         # set range with same delta for both
         big_range = max([max(self.y1)-min(self.y1), max(self.y2)-min(self.y2)])
         max_unc_1 = max(self.y1err)
@@ -506,37 +503,58 @@ class MM_ratio():
 
         # fit
         x_range = max([max(self.x1), max(self.x2)]) - min([min(self.x1), min(self.x2)])
-
-
         x = np.linspace(min([min(self.x1), min(self.x2)]) - 0.05*x_range,
                         max([max(self.x1), max(self.x2)]) + 0.05*x_range, 200)
+        time_x = [(pd.Timedelta(i, unit='m')+min([self.x1df['median_time'][0], self.x2df['median_time'][0]])).to_pydatetime(warn=False) for i in x]
+
         if self.lin_extrapolation == False:
-            parameter1 = list(self.param_result[:-1])
-            parameter2 = list(self.param_result)
-            del(parameter2[-2])
-            l3, = ax.plot([(pd.Timedelta(i, unit='m')
-                           +min([self.x1df['median_time'][0], self.x2df['median_time'][0]])).to_pydatetime(warn=False) for i in x]
-                           , self.fit_function(np.array(x), parameter1), 'r-', label='fit')   # the star is to unpack the parameter array
-            ax2.plot([(pd.Timedelta(i, unit='m')
-                           +min([self.x1df['median_time'][0], self.x2df['median_time'][0]])).to_pydatetime(warn=False) for i in x]
-                           , self.fit_function(np.array(x), parameter2), 'r-', label='fit')   # the star is to unpack the parameter array
+            parameter1 = [float(i) for i in list(self.param_result[:-1])]
+            parameter2 = [float(i)/float(self.param_result[-1]) for i in list(self.param_result[:-1])]
+            l3, = ax.plot(time_x, self.fit_function(np.array(x), parameter1), 'r-', label='fit')   # the star is to unpack the parameter array
+            ax2.plot(time_x, self.fit_function(np.array(x), parameter2), 'r-', label='fit')   # the star is to unpack the parameter array
+            # ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d, %H'))
+            ax.yaxis.set_minor_locator(MultipleLocator(0.1))
+            ax.yaxis.set_major_locator(MultipleLocator(0.5))
+            ax.yaxis.offsetText.set_fontsize(15)
+            ax.tick_params(labelsize=15, top=False, right=False)
+
+
+            ax2.yaxis.set_minor_locator(MultipleLocator(0.1))
+            ax2.yaxis.set_major_locator(MultipleLocator(0.5))
+            ax2.yaxis.offsetText.set_fontsize(15)
+            ax2.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+            ax2.xaxis.set_minor_locator(mpl.dates.HourLocator())
+            ax2.tick_params(labelsize=15, top=False, right=False)
         else:
             l3, = ax.plot([(pd.Timedelta(i, unit='m')
                            +self.x1df['median_time'][0]).to_pydatetime(warn=False) for i in x]
                            , self.linear(np.array(x), self.param_result[0], self.param_result[1]), 'r-', label='fit')   # the star is to unpack the parameter array
 
         # sys.exit()
+        plt.tick_params(labelsize=15, right=False)
 
-        plt.figlegend((l1, l2, l3),('{}'.format(self.isotopes[0]),
+        if self.isotopes == ['23Na', '23Mg']:
+            self.isotopes = ['$^{23}$Na', '$^{23}$Mg']
+
+
+        f.legend((l1, l2, l3),('{}'.format(self.isotopes[0]),
                                     '{}'.format(self.isotopes[1]), 'fit')
-                      ,fontsize=14,title='{}'.format(self.dirname))
+                      ,fontsize=14,title='{}'.format(self.dirname), bbox_to_anchor=(0.255,0.33))
 
         plt.tight_layout()
-        anchored_text = mpl.offsetbox.AnchoredText('Ratio: {} +/- {} ($\\chi^2_{{red}}$ = {:1.2f}, polynomial degree = {})'.format(self.ratio, self.ratio_unc, self.red_chi_sq, self.degree), loc='lower center')
-        ax.add_artist(anchored_text)
-        plt.savefig('{}ratio_deg{}_{}_{}.pdf'.format(self.run_folder,self.degree,self.isotopes[0], self.isotopes[1]))
 
-        plt.show()
+
+        if self.isotopes == ['$^{23}$Na', '$^{23}$Mg1']:
+            self.isotopes = ['23Na', '23Mg']
+            anchored_text = mpl.offsetbox.AnchoredText('Ratio: {:1.10f} $\\pm$ {:1.10f}'.format(self.ratio, self.ratio_unc, self.red_chi_sq, self.degree), loc=9)#, fontsize=14)
+        else:
+            anchored_text = mpl.offsetbox.AnchoredText('Ratio: {:1.10f} $\\pm$ {:1.10f} ($\\chi^2_{{red}}$ = {:1.2f}, polynomial degree = {})'.format(self.ratio, self.ratio_unc, self.red_chi_sq, self.degree), loc='upper right')
+        ax.add_artist(anchored_text)
+
+        plt.savefig('{}ratio_deg{}_{}{}_{}{}.pdf'.format(self.run_folder,self.degree, [str(s) for s in re.findall(r'-?\d+\.?\d*', self.isotopes[0])][0], ''.join(x for x in self.isotopes[0] if x.isalpha()), [str(s) for s in re.findall(r'-?\d+\.?\d*', self.isotopes[1])][0], ''.join(x for x in self.isotopes[1] if x.isalpha())))
+
+        # plt.show()
+        plt.close()
 
     def weighted_avg_calc(self, input_list):
         '''
@@ -678,9 +696,9 @@ class MM_ratio():
             tmp_ratio_list.append([0, self.linear(0, fit_res[0], fit_res[1]), tmp_dict['Z0-0'][run]['ratio_unc']])
             plt.xticks([0,1,2,3], [0,1,2,3], fontsize=16)
             plt.yticks(fontsize=16)
-            plt.legend(title=run,fontsize=16)
-            plt.xlabel(tmp_ratio_list[0][0], fontsize=22)
-            plt.ylabel(tmp_ratio_list[0][1], fontsize=22)
+            plt.legend(title=run, fontsize=16)
+            plt.xlabel(tmp_ratio_list[0][0], fontsize=22, fontweight='bold')
+            plt.ylabel(tmp_ratio_list[0][1], fontsize=22, fontweight='bold')
             plt.tight_layout()
             anchored_text = mpl.offsetbox.AnchoredText('R(Z=0) =  {} $\\pm$ {}'.format(self.linear(0, fit_res[0], fit_res[1]), tmp_dict['Z0-0'][run]['ratio_unc']), loc='lower center')
             ax.add_artist(anchored_text)
@@ -705,8 +723,8 @@ class MM_ratio():
         plt.errorbar(x, y, yerr=yerr, fmt='o', label='extr. $\\nu_c$-ratio')
         plt.xticks(x, x, fontsize=16)
         plt.yticks(fontsize=16)
-        plt.xlabel('run #', fontsize=22)
-        plt.ylabel('$\\nu_c$ ratio', fontsize=22)
+        plt.xlabel('run #', fontsize=22, fontweight='bold')
+        plt.ylabel('$\\nu_c$ ratio', fontsize=22, fontweight='bold')
         plt.axhline(y=tmp_dict['Z0-0']['weighted_avg'], linewidth=2, color = 'r', label='weighted mean')
         xlim = ax2.get_xlim()
         plt.fill_between(xlim,
@@ -724,15 +742,15 @@ class MM_ratio():
         anchored_text = mpl.offsetbox.AnchoredText('weighted mean =  {} $\\pm$ {} ($\\chi^2_{{red}}$ = {:3.2f})'.format(tmp_dict['Z0-0']['weighted_avg'], tmp_dict['Z0-0']['weighted_avg_unc'], tmp_dict['Z0-0']['birge_ratio']), loc='lower center')
         ax2.add_artist(anchored_text)
 
-        if self.mode == 'single_ToF_ICR':
+        if self.mode == 'single_easy':
             plt.savefig('{}{}-{}-poly-fit-ratio.pdf'.format(self.run_folder, self.isotopes[0], self.isotopes[1]))
         else:
             plt.savefig(os.path.dirname(merged_dict_file)+'/Z0-0/extrapolated_ratio_{}.pdf'.format(merged_dict_file[-17:-5]))
         plt.close()
 
 if __name__ == '__main__':
-    mm_ratio = MM_ratio()
-    mode = 'single_ToF_ICR'
+    freq_ratio = Freq_ratio()
+    mode = 'single_easy'
     # z_classes = ['Z1-1', 'Z2-2', 'Z3-3']
     z_classes = 'Z1-1'
 
@@ -740,28 +758,60 @@ if __name__ == '__main__':
         # run_folder = '/Volumes/Karthein_Jonas/Doktor/2017-11-02_Cd-analysis/PI-ICR/129Cd/{}/129Cd_run-013/'.format(z_classes)
         # run_folder = '/Volumes/ISOLTRAP/USER/Karthein_Jonas/Doktor/2017-11-02_Cd-analysis/PI-ICR/129Cd/{}/129Cd_run-006/'.format(z_classes)
         # isotopes = ['129Cs', '129gCd']
-        run_folder = '/Volumes/ISOLTRAP/USER/Karthein_Jonas/Doktor/2017-11-02_Cd-analysis/PI-ICR/127Cd/{}/127Cd_run-002/'.format(z_classes)
-        isotopes = ['133Cs', '127mCd']
-        mm_ratio.main(run_folder=run_folder, isotopes=isotopes, degree=2, single_or_batch=mode, z_classes=z_classes)
+        run_folder = '/Users/jonaskarthein/cernbox/Analysis/131Cs/analyzed/manual/133Cs-131Cs-run02/'
+        # run_folder = '/Volumes/ISOLTRAP/USER/Karthein_Jonas/Doktor/2017-11-02_Cd-analysis/PI-ICR/127Cd/{}/127Cd_run-002/'.format(z_classes)
+        isotopes = ['133Cs', '131Cs']
+        freq_ratio.main(run_folder=run_folder, isotopes=isotopes, degree=2, single_or_batch=mode, z_classes=z_classes)
     elif mode == 'batch':
         upper_run_folder = '/Volumes/ISOLTRAP/USER/Karthein_Jonas/Doktor/2017-11-02_Cd-analysis/PI-ICR/127Cd/'
         # isotopes = ['129Cs', '129mCd']
         isotopes = ['133Cs', '127gCd']
-        mm_ratio.batch(upper_run_folder=upper_run_folder, isotopes=isotopes, degree=2, z_classes=z_classes)
+        freq_ratio.batch(upper_run_folder=upper_run_folder, isotopes=isotopes, degree=2, z_classes=z_classes)
     elif mode == 'merge_single':
         upper_z_folder = '/Volumes/ISOLTRAP/USER/Karthein_Jonas/Doktor/2017-11-02_Cd-analysis/PI-ICR/127Cd/'
         isotopes = ['133Cs', '127gCd']
-        mm_ratio.merge_single(upper_z_folder, isotopes)
+        freq_ratio.merge_single(upper_z_folder, isotopes)
     elif mode == 'extrapolation':
         json_folder = '/Volumes/ISOLTRAP/USER/Karthein_Jonas/Doktor/2017-11-02_Cd-analysis/PI-ICR/127Cd/merged_ratio_dict_133Cs_127mCd.json'
         # json_folder = '/Volumes/ISOLTRAP/USER/Karthein_Jonas/Doktor/2017-11-02_Cd-analysis/PI-ICR/129Cd/merged_ratio_dict_129Cs_129gCd.json'
-        mm_ratio.extrapolation(json_folder)
-    elif mode == 'single_ToF_ICR':
-        # run_folder = '/Users/jonaskarthein/cernbox/Analysis/MirrorNuclei/poly_fit_all/'
-        # run_folder = '/Users/jonaskarthein/cernbox/Analysis/MirrorNuclei/poly_fit_partial/21-part1/'
-        run_folder = '/Volumes/2018/2018-04-Sc_run/pi_icr/2018-04-29_101In-82Sr19F/analyzed/cross-checks/poly_fit/'
-        isotopes = ['101In_m', '101SrF']
-        # isotopes = ['23Na', '23Mg']
-        # mm_ratio.get_data_tof_icr(run_folder, isotopes)
-        mm_ratio.main(run_folder=run_folder, isotopes=isotopes, degree=2, single_or_batch=mode, z_classes=z_classes)
+        freq_ratio.extrapolation(json_folder)
+    elif mode == 'single_easy':
+        data_collection_needed = False
+        tof_icr = False
+
+        # run_folder = '/Users/jonaskarthein/cernbox/Analysis/131Cs/analyzed/manual/85Rb-133Cs-run03/'
+        # isotopes = ['133Cs', '85Rb']
+
+        # run_folder = '/Users/jonaskarthein/cernbox/Analysis/131Cs/analyzed/manual/133Cs-131Cs-run02/'
+        # isotopes = ['133Cs', '131Cs']
+
+        run_folder = '/Users/jonaskarthein/cernbox/Analysis/131Cs/analyzed/manual/133Cs-131Cs-comb/'
+        isotopes = ['133Cs', '131Cs']
+
+        # run_folder = '/Users/jonaskarthein/cernbox/Analysis/MirrorNuclei/internal_sandwiches/23-part1/'
+        # run_folder = '/Users/jonaskarthein/cernbox/Analysis/MirrorNuclei/poly_fit_partial/21-part2/'
+        # run_folder = '/Users/jonaskarthein/cernbox/Analysis/MirrorNuclei/poly_fit_partial/23-part2/'
+        # isotopes = ['101In_m', '101SrF']
+        # freq_ratio.main(run_folder=run_folder, isotopes=isotopes, degree=3, single_or_batch=mode, z_classes=z_classes)
+        # isotopes = ['21Na', '21Na-2']
+        # isotopes = ['21Ne', '21Ne-2']
+        # if data_collection_needed:
+        #     if tof_icr:
+        #         freq_ratio.get_data_tof_icr(run_folder, isotopes)
+        #     else:
+        #         freq_ratio.set_folders(run_folder, isotopes)
+        #         freq_ratio.get_data()
+        #         sys.exit()
+
+        batch = True
+        if batch:
+            for iso in [isotopes]:
+                for deg in [2,3,4,5,6,7,8,9,10,11,12,13,14,15]:
+                    freq_ratio.main(run_folder=run_folder, isotopes=iso, degree=deg, single_or_batch=mode, z_classes=z_classes)
+        else:
+            # isotopes = ['21Ne', '21Na']
+            degree = 8
+            freq_ratio.main(run_folder=run_folder, isotopes=isotopes, degree=degree, single_or_batch=mode, z_classes=z_classes)
+
+
 

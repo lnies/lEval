@@ -11,12 +11,12 @@ mpl.use('Qt5Agg')
 
 import matplotlib.pyplot as plt
 import xml.etree.ElementTree as ET
+from operator import itemgetter # sort a list
 
 from piicr_reconstruction import *
 from read_write_functions import *
 from python_plotter_functions import *
 from piicr_cross_checks import weighted_mean
-
 
 def piicr_add_time_stamps(file_path):
     '''Adds timestamps for raw piicr data from .tdc to .txt'''
@@ -79,10 +79,10 @@ def folder_creation_analysis(folder_name, isotopes):
             for j in txt_files:
                 if i in j:
                     if '_c' in j:   # move center files
-                        shutil.move(folder_name+'\\'+j, folder_name+'\\'+i+'\\c\\'+j)
+                        shutil.move(folder_name+'/'+j, folder_name+'/'+i+'/c/'+j)
                     else:          # move p1p2 files
-                        if os.path.isfile(folder_name+'\\'+j) == True:
-                            shutil.move(folder_name+'\\'+j, folder_name+'\\'+i+'\\p1p2\\'+j)
+                        if os.path.isfile(folder_name+'/'+j) == True:
+                            shutil.move(folder_name+'/'+j, folder_name+'/'+i+'/p1p2/'+j)
 
             out_files = []
             for file in glob.glob("*.out"):
@@ -743,6 +743,7 @@ def analysis_main(upper_folder_path, fit_range, tof_cut, z_class_analysis, FWHM_
         p1p2_angle_1, p1p2_angle_1_error, p1p2_angle_2, p1p2_angle_2_error, p1_angle, p1_angle_error, p2_angle_1, p2_angle_1_error, p2_angle_2, p2_angle_2_error = angle_calculator_two(all_peak_positions_c, all_peak_positions_p1, all_peak_positions_p2, folder_name_0, upper_folder_path, folder_name_0, latex_name)
         piicr_cyc_freq = piicr_cyclotron_frequency_two(p1p2_angle_1, p1p2_angle_1_error, p1p2_angle_2, p1p2_angle_2_error, piicr_excitation[1][3], piicr_excitation[1][4])
 
+    piicr_cyc_freq = sorted(piicr_cyc_freq, key=itemgetter(0))
     # ---------------------------------------------------------------------------
     # Prepare plotting
     # ---------------------------------------------------------------------------
