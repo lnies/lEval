@@ -135,7 +135,7 @@ class load_lst():
             print(f"Data length: {data_length}\nN bits: {nb_bits}\nData lost bit: {data_lost_bit}\n\
                     tag bits: {tag_bits}\nsweep_counter: {sweep_counter}\ntime_bits: {time_bits}\n\
                     max sweep length: {max_sweep_length}\nsteps: {steps}\n")
-
+        # !
         # Introduce sweep_counter_overflow: in some cases, MCS6 seems to allocated only a small amount of bits for storing the sweep number.
         # In time_patch=32 this is for example only 7 bits -> can count to 128 and then resets to 0. With the overflow counter we just
         # count how many overflows happen and just at the necessary amount of sweeps to the overall sweep number
