@@ -17,7 +17,7 @@ import math
 import time
 import mmap
 
-from process import *
+from process import Peaks, softCool
 
 class FitMethods():
 	"""
