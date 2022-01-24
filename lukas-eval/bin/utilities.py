@@ -26,7 +26,6 @@ import time
 import sys
 import re
 
-
 class AME():
     '''
     Base handling AME related stuff
@@ -252,7 +251,13 @@ class Peaks:
     
     def find_peaks(self, bins=10, peak_threshold = 0.002, peak_min_distance = 5, peak_min_height = 10, peak_width_inbins = (3,100), 
                    peak_prominence = None, peak_wlen = None):
-        """  """
+        """  
+        Arguments:
+            - bins: Rebinning for faster peak finding
+            - peak_threshold:
+            - peak_min_distance:
+            - ...
+        """
         #
         self.pos = []
         self.std = []
@@ -270,8 +275,11 @@ class Peaks:
                                              prominence=peak_prominence,
                                              wlen=peak_wlen)
         # Calculate some additional meta data for the found peaks
+        self.n_peaks = len(self.x_proj_peaks)
+        if self.n_peaks == 0:
+            print(f"(Peaks.find_peaks): No peaks with current settings found, try different ones.")
+            return
         self.highest_peak = self.peaks_info['peak_heights'].argmax()
-        self.n_peaks = len(self.x_proj_peaks)        
         # variables to store earliest left_base and lastest right_base for constraining plot range
         self.earliest_left_base = 1e15
         self.earliest_peak_idx = 1e15
@@ -308,7 +316,18 @@ class Peaks:
                 self.latest_right_base = right
                 self.latest_peak_idx = i 
                 
-    def plot(self, bins = 10, focus=False, log=False, silent = False, save = False, path_to_file = "peaks"):
+    def plot(self, bins = 10, lines = True, focus=False, log=False, silent = False, save = False, path_to_file = "peaks"):
+        '''
+        Plot 1D Histogram with found peaks.
+        Parameters:
+        - bins: Number of bins to be rebinned. Default=10
+        - lines: Draws lines where peaks are found. Default=True
+        - focus: if True, sets xlimits to first and last found peak
+        - log: if Ture, sets logscale on y-axis
+        - silent: if True, shows plot on canvas
+        - save: if True, uses path_to_file to save plot as .pdf
+        - path_to_file: path to save .pdf in
+        '''
         #
         plt.rcParams["figure.figsize"] = (10,6)
         #
@@ -322,24 +341,30 @@ class Peaks:
         dx = np.diff(xe)
         plt.errorbar(cx, n, n ** 0.5, fmt="ok", zorder=1)
         plt.plot(xdata, np.zeros_like(xdata)-5, "|", alpha=0.1, label = "ToF Data", zorder = 3)
+        #
         if log:
             plt.yscale('log')
-        for i in range(self.n_peaks):
-            plt.axvline(self.pos[i], c='r', linewidth=1, zorder=3)
+        #
+        if lines:
+            for i in range(self.n_peaks):
+                plt.axvline(self.pos[i], c='r', linewidth=1, zorder=3)
         
         xm = np.linspace(xe[0], xe[-1], num=1000)
         plt.legend();
         # plt.xlim(peaks.pos[0]-300, peaks.pos[0]+300)
+        
         # Zoom in on found peaks
-        if focus==False:
+        if focus:
             plt.xlim(self.earliest_left_base-200, self.latest_right_base+200)
-        else:
-            plt.xlim(self.pos[focus]-300, self.pos[focus]+300)
-        #
+        
+        # Add axis labels
+        plt.xlabel(f'Time-of-Flight [ns]', fontsize=20)
+        plt.ylabel(f'Counts per bin', fontsize=20)
+
         if not silent: 
             plt.show()
             # plt.clf()
-
+        #
         if save:
             plt.savefig(path_to_file+".pdf", dpi=300)
             plt.clf()
@@ -361,7 +386,7 @@ class Peaks:
         plt.xlabel("Time-of-Flight [ns]")
         plt.ylabel("Rolling sweep number")
         plt.show()
-
+        
 class softCool(Peaks):
     """
     Class for performing software cooling on 2D MR-ToF MS Data

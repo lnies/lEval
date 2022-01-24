@@ -19,6 +19,87 @@ import mmap
 
 from utilities import Peaks, softCool
 
+class FitToDict:
+	'''
+	Class for reading fit files created by the fit functions
+	'''
+	def __init__(self):
+		self.fit = {}
+		self.line_nb = 0
+		self.res_table_line = 0
+		self.fit_val_line = 0
+		self.file_path = ''
+
+	def __initialize(self, file_path, verbose = 0):
+		'''
+		PRIVATE: Init file, read the meta data into dict and save where the results table and fit values table start
+		'''
+		# open the file
+		self.file_path = file_path
+		file = open(self.file_path)
+		for line in file.readlines():
+			# Increment line counter
+			self.line_nb += 1
+			# get rid of the newline
+			line = line[:-1]
+			try:
+				# this will break if you have whitespace on the "blank" lines
+				if line:
+					# skip comment lines
+					if line[0] == '#': next
+					# this assumes everything starts on the first column
+					if line[0] == '[':
+						# strip the brackets
+						section = line[1:-1]
+						# create a new section if it doesn't already exist
+						if not section in self.fit:
+							self.fit[section] = {}
+							# Save where which section is
+							if section == 'RESULTS-TABLE':
+								self.res_table_line = self.line_nb
+							if section == 'FIT-VALUES':
+								self.fit_val_line = self.line_nb
+					else:
+						# split on first the equal sign
+						(key, val) = line.split('=', 1)
+						# create the attribute as a list if it doesn't
+						# exist under the current section, this will
+						# break if there's no section set yet
+						if not key in self.fit[section]:
+							self.fit[section][key] = val
+						# append the new value to the list
+						#sections[section][key].append(val)
+			except Exception as e:
+				if verbose > 0: 
+					print(str(e) + "line:" +line)
+					
+	def __read_tables(self):
+		'''
+		Use pandas to read the tables 
+		'''
+		#
+		if 'RESULTS-TABLE' in self.fit:
+			n_footer = self.line_nb - self.fit_val_line + 1       
+			self.fit['RESULTS-TABLE'] = pd.read_csv(self.file_path, header=self.res_table_line, delimiter=' ', 
+													skipfooter=n_footer, engine='python')
+		if 'FIT-VALUES' in self.fit: 
+			self.fit['FIT-VALUES'] = pd.read_csv(self.file_path, header=self.fit_val_line, delimiter=' ')
+					
+	def read(self, file_path):
+		'''
+		Function for reading a fit into a dict
+		Parameters:
+			- file_path: Path to file
+		Return:
+			- Dictionary with meta data, fit results, and fit values for plotting
+		'''
+		# 
+		self.__initialize(file_path)
+		# read results table
+		self.__read_tables()
+		#
+		return self.fit
+
 class FitMethods():
 	"""
 	Generic class with methods inherited by all PDF class models.
@@ -48,6 +129,9 @@ class FitMethods():
 		self.roi_rms = 0.0
 		self.roi_counts = 0.0
 		self.roi_skewness = 0.0
+		#
+		self.RooRealVar_dict = {}
+		self.Var_dict = {}  
 		#
 		self.lst_file = lst_file
 		self.fitrange = 100
@@ -151,38 +235,38 @@ class FitMethods():
 		[hist.Fill(x) for x in list_file.tof]
 		return hist
 
-def read_fit(path_to_file):
-	meta_data_keys = ["range", "swpreset", "cycles", "cmline0", "caloff", "calfact", "time_patch",
-					  "fit_function", "binning", "xmin", "xmax", "numerical_peak", "numerical_FWHM", 
-					  "numerical_FWHM_left", "numerical_FWHM_right"]
+# def read_fit(path_to_file):
+# 	meta_data_keys = ["range", "swpreset", "cycles", "cmline0", "caloff", "calfact", "time_patch",
+# 					  "fit_function", "binning", "xmin", "xmax", "numerical_peak", "numerical_FWHM", 
+# 					  "numerical_FWHM_left", "numerical_FWHM_right"]
 
-	file_number = re.split('In_run_|_',path_to_file)[3]
-	# Extract fit parameters and save them in dict 
-	sub_d = {
-		'file_number': file_number,
-		'species': re.split('In_run_|revs|_',path_to_file)[4],
-		'n_revs': re.split('In_run_|revs|_',path_to_file)[5]
-	}
-	#
+# 	file_number = re.split('In_run_|_',path_to_file)[3]
+# 	# Extract fit parameters and save them in dict 
+# 	sub_d = {
+# 		'file_number': file_number,
+# 		'species': re.split('In_run_|revs|_',path_to_file)[4],
+# 		'n_revs': re.split('In_run_|revs|_',path_to_file)[5]
+# 	}
+# 	#
 
-	with open(path_to_file,'rb') as fit_file:
-		mapped_file = mmap.mmap(fit_file.fileno(), 0, access=mmap.ACCESS_READ)
-		for key in meta_data_keys:
-			try:
-				mapped_file.seek(mapped_file.find(f'{key}'.encode('ascii')))
-				meta_data = mapped_file.readline().strip('\r\n'.encode('ascii')).decode('ascii')
-				sub_d[key] = re.split('=',meta_data)[1]
-			except: 
-				continue
-		# Find start of fit data 
-		for num, line in enumerate(fit_file, 1):
-			if '[RESULTS-TABLE]'.encode('ascii') in line:
-				header_row =  num
-		# read fit 
-		df = pd.read_csv(path_to_file, delimiter=" ", header=header_row)
-		sub_d['fit'] = df
+# 	with open(path_to_file,'rb') as fit_file:
+# 		mapped_file = mmap.mmap(fit_file.fileno(), 0, access=mmap.ACCESS_READ)
+# 		for key in meta_data_keys:
+# 			try:
+# 				mapped_file.seek(mapped_file.find(f'{key}'.encode('ascii')))
+# 				meta_data = mapped_file.readline().strip('\r\n'.encode('ascii')).decode('ascii')
+# 				sub_d[key] = re.split('=',meta_data)[1]
+# 			except: 
+# 				continue
+# 		# Find start of fit data 
+# 		for num, line in enumerate(fit_file, 1):
+# 			if '[RESULTS-TABLE]'.encode('ascii') in line:
+# 				header_row =  num
+# 		# read fit 
+# 		df = pd.read_csv(path_to_file, delimiter=" ", header=header_row)
+# 		sub_d['fit'] = df
 
-	return sub_d
+# 	return sub_d
 
 class Gauss(FitMethods):
 	"""
@@ -800,6 +884,8 @@ class hyperEmg(FitMethods):
 		# Fit results
 		f.write(f"fit_function={self.fit_func_name}\n")
 		f.write(f"binning={self.binning}\n")
+		f.write(f"dimensions={self.dimensions}\n")
+		f.write(f"n_comps={self.n_comps}\n")
 		f.write(f"xmin={self.xmin}\n")
 		f.write(f"xmax={self.xmax}\n")
 		f.write(f"numerical_peak={self.numerical_peak}\n")
@@ -814,7 +900,49 @@ class hyperEmg(FitMethods):
 			f.write(f"{var} {self.RooRealVar_dict[var].getValV()} {self.RooRealVar_dict[var].getError()} ")
 			f.write(f"{self.RooRealVar_dict[var].getErrorLo()} {self.RooRealVar_dict[var].getErrorHi()} ")
 			f.write(f"{self.limits[var][0]} {self.limits[var][1]} {self.limits[var][2]}\n")
+		#
+		f.write(f"[FIT-VALUES]\n")
+		f.write(f"tof fit\n")
+		xm = np.linspace(self.xmin, self.xmax, num=5000)
+		# Get fit results for x-axis
+		y_val = []
+		for i in xm:
+			self.RooRealVar_dict['x'].setVal(i)
+			f.write(f"{i:.3f} {self.this_pdf.getVal(ROOT.RooArgSet(self.RooRealVar_dict['x'])):.6f}\n")
 		f.close()
+
+	def load_fit(self, file):
+		'''
+		Reads fit file that is generated from the FitToDict() class. Stores meta data within class scope.
+		Parameters:
+			- file: input file
+		Return
+			- xvalues of fit
+			- yvalues of fit 
+		'''
+		fitfromfile = FitToDict()
+		fitfromfile.read(file)
+		#
+		if not 'FIT-VALUES' in fitfromfile.fit:
+			print(f"Fit file {file} has no fit values that were exported.")
+			return 0
+		#
+		xm = fitfromfile.fit['FIT-VALUES'].tof
+		y_val = fitfromfile.fit['FIT-VALUES'].fit
+		self.xmin = float(fitfromfile.fit['META-DATA']['xmin'])
+		self.xmax = float(fitfromfile.fit['META-DATA']['xmax'])
+		self.numerical_peak = float(fitfromfile.fit['META-DATA']['numerical_peak'])
+		self.numerical_FWHM = float(fitfromfile.fit['META-DATA']['numerical_FWHM'])
+		self.numerical_FWHM_left = float(fitfromfile.fit['META-DATA']['numerical_FWHM_left'])
+		self.numerical_FWHM_right = float(fitfromfile.fit['META-DATA']['numerical_FWHM_right'])
+		self.dimensions = np.fromstring(fitfromfile.fit['META-DATA']['dimensions'].strip('[]'), sep=',', dtype=int)
+		self.fit_func_name = fitfromfile.fit['META-DATA']['fit_function']
+		self.n_comps = int(fitfromfile.fit['META-DATA']['n_comps'])
+		#
+		for idx,row in fitfromfile.fit['RESULTS-TABLE'].iterrows():
+   			self.Var_dict[row['var']] = row['value']
+		#
+		return xm, y_val
 
 	def call_pdf(self, xmin, xmax, dimensions = [1,2], n_comps = 1, bins = 1, limits=False):
 		"""
@@ -846,7 +974,7 @@ class hyperEmg(FitMethods):
 			self.init_limits()
 		else:
 			self.limits = limits
-		# Build variable dictionary:
+		# Fill variable dictionary:
 		self.RooRealVar_dict = {
 			'x': RooRealVar("x", self.rootitle, self.xmin, self.xmax, self.roounit)
 		}
@@ -914,10 +1042,28 @@ class hyperEmg(FitMethods):
 		# Calculate numerical position of maximum and FWHM
 		self.numerical_peak, self.numerical_FWHM, self.numerical_FWHM_left, self.numerical_FWHM_right = self.find_peak_and_fwhm()
 
+		# Store fit results in dict
+		for key in self.RooRealVar_dict:
+			self.Var_dict[key] = self.RooRealVar_dict[f'{key}'].getValV()
+
+		print(self.Var_dict)
+
 		return [self.this_roohist, self.roodefs, self.this_pdf, self.my_name, self.spl_draw, self.rooCompon, self.fit_results]
 	
-	def plot(self, bins = 1, log=False, focus=False, file_name=False, silent=True):
-		"""  """
+	def plot(self, bins = 1, log=False, focus=-1, from_file = False, file_out=False, silent=True, 
+			 centroids=False, components=False, carpet=False, legend=True):
+		"""  
+		Wrapper for plotting the fit and data
+			- bins: number of bins to rebin. Defaults to 1, e.g. no rebinning
+			- log: plot y-scale in log. Defaults to false
+			- from_file: file to read fit from if already fitted earlier .pdf. Defaults to False, fit needs to be executed beforehand 
+			- file_out: name to save plot as .pdf. Defaults to False, e.g. no saving
+			- silent: True shows plot, false does not show plot (for silent printing)
+			- centroids: True shows centroids of Gaussian components, as well as location of FWHM of main peak. Defaults to False.
+			- components: Plots components to EGH as grey dashed lines
+			- carpet: If true, plots carpet 
+			- legend: Plot legend if
+		"""
 		if len(self.lst_file) == 0:
 			print("Fit not excecuted yet or failed.")
 			return 0 
@@ -926,103 +1072,137 @@ class hyperEmg(FitMethods):
 		xdata = self.lst_file.tof
 		n, xe = np.histogram(xdata, bins=self.get_binning(self.bins))
 		# n = n/len(xdata)
-		cx = 0.5 * (xe[1:] + xe[:-1])
+		cx = 0.5 * (xe[1:] + xe[:-1]) 
 		dx = np.diff(xe)
 		# Plot data
 		# plt.scatter(cx, n, zorder=1)
-		plt.errorbar(cx, n, n ** 0.5, fmt="ok", zorder=1, label=f"Data (bins={bins})")
-		xm = np.linspace(self.xmin, self.xmax, num=5000)
-		# Plot 'carpet'
-		if log:
-			plt.plot(xdata, np.zeros_like(xdata)+0.9, "|", alpha=0.1, zorder = 3)
-		plt.plot(xdata, np.zeros_like(xdata)-5, "|", alpha=0.1, zorder = 3)
-		# if log:
-		# 	xm = np.linspace(self.mu.getValV()-100, self.mu.getValV()+100, num=1000)
-		#
-		y_val = []
-		for i in xm:
-			self.RooRealVar_dict['x'].setVal(i)
-			y_val.append(self.this_pdf.getVal(ROOT.RooArgSet(self.RooRealVar_dict['x'])))			
+		
+		# Get fit and prepare fit parameters for plotting,
+		#	- Either from the call_pdf during the same program excecution
+		# 	- or from the fit file that saves the (not normalized) fit
+		if not from_file:
+			# X-Axis for fit
+			xm = np.linspace(self.xmin, self.xmax, num=5000)
+			# Get fit results for x-axis
+			y_val = []
+			for i in xm:
+				self.RooRealVar_dict['x'].setVal(i)
+				y_val.append(self.this_pdf.getVal(ROOT.RooArgSet(self.RooRealVar_dict['x'])))	
+		else:
+			# Read fit file
+			xm, y_val = self.load_fit(from_file)
+
+		# Plot data
+		plt.errorbar(cx - self.numerical_peak,
+					 n, n ** 0.5, fmt="ok", zorder=1, label=f"Data (bins={bins})")
+
 		# Normalize values
 		integral_cut = sum(y_val) * np.diff(xm)[0]
 		left_n_cut = len(xe[xe<self.xmin])
 		right_n_cut = len(xe[xe<self.xmax])
 		n_cut = n[left_n_cut:right_n_cut]        
 		y_val = y_val / integral_cut * sum(n_cut) * dx[0]
+
 		# Plot fit	
-		plt.plot(xm, y_val, label=f"{self.fit_func_name}({self.dimensions[0]},{self.dimensions[1]})", c='r', zorder=3, linewidth=3)
+		plt.plot(xm - self.numerical_peak, 
+				 y_val, label=f"{self.fit_func_name}({self.dimensions[0]},{self.dimensions[1]})", c='r', zorder=3, linewidth=3)
 		
+		# Plot 'carpet'
+		if carpet:
+			if log:
+				plt.plot(xdata - self.numerical_peak, 
+						 np.zeros_like(xdata)+0.9, "|", alpha=0.1, zorder = 3)
+			plt.plot(xdata - self.numerical_peak, 
+					 np.zeros_like(xdata)-5, "|", alpha=0.1, zorder = 3)
+
 		# Plot numerical peak position and FWHM
-		plt.axvline(self.numerical_peak, c='r', linewidth=1, zorder=3)
-		plt.axvline(self.numerical_FWHM_left, c='blue', linewidth=1, zorder=3)
-		plt.axvline(self.numerical_FWHM_right, c='blue', linewidth=1, zorder=3)
-		# Plot center of gaussian component
-		for comp in range(0,self.n_comps,1):
-			plt.axvline(self.RooRealVar_dict[f'mu{comp}'].getValV(), c='r', linewidth=1, zorder=3)
+		if centroids:
+			plt.axvline(self.numerical_peak - self.numerical_peak, c='r', linewidth=1, zorder=3)
+			plt.axvline(self.numerical_FWHM_left - self.numerical_peak, c='blue', linewidth=1, zorder=3)
+			plt.axvline(self.numerical_FWHM_right - self.numerical_peak, c='blue', linewidth=1, zorder=3)
+			# Plot center of gaussian component
+			for comp in range(0,self.n_comps,1):
+				plt.axvline(self.Var_dict[f'mu{comp}'] - self.numerical_peak, c='r', linewidth=1, zorder=3)
 
 		# Plot components
-		i_ratio = 0 
-		n_ratios = self.n_comps * (self.dimensions[0] + self.dimensions[1]) - 1
-		# Loop through components as the ratios are assigned: inner loop must be the different species while outer loop is the egh component
-		for dim in range(0,self.dimensions[0],1):
-			for comp in range(0,self.n_comps,1):
-				y_val = self.neg_func(x=xm,mu=self.RooRealVar_dict[f'mu{comp}'].getValV(), 
-											sigma=self.RooRealVar_dict[f'sigma'].getValV(), 
-											ntau=self.RooRealVar_dict[f'ntau{dim}'].getValV())
-				# normalize accounting for fit ratios
-				integral_cut = sum(y_val) * np.diff(xm)[0]
-				y_val = y_val / integral_cut * sum(n_cut) * dx[0]
-				if (self.n_comps == 0 and (self.dimensions[0]+self.dimensions[1]) == 1):
-					ratio = 1
-				else:
-					if i_ratio != n_ratios:
-						y_val *= self.RooRealVar_dict[f'ratio{i_ratio}'].getValV()
+		if components:
+			i_ratio = 0 
+			n_ratios = self.n_comps * (self.dimensions[0] + self.dimensions[1]) - 1
+			# Loop through components as the ratios are assigned: inner loop must be the different species while outer loop is the egh component
+			for dim in range(0,self.dimensions[0],1):
+				for comp in range(0,self.n_comps,1):
+					y_val = self.neg_func(x=xm,mu=self.Var_dict[f'mu{comp}'], 
+												sigma=self.Var_dict[f'sigma'], 
+												ntau=self.Var_dict[f'ntau{dim}'])
+					# normalize accounting for fit ratios
+					integral_cut = sum(y_val) * np.diff(xm)[0]
+					y_val = y_val / integral_cut * sum(n_cut) * dx[0]
+					if (self.n_comps == 0 and (self.dimensions[0]+self.dimensions[1]) == 1):
+						ratio = 1
 					else:
-						y_val *= 1-sum([self.RooRealVar_dict[f'ratio{r}'].getValV() for r in np.arange(0,n_ratios,1)])
-				i_ratio += 1
-				# Plot
-				plt.plot(xm, y_val, label=f"Neg. component {comp}:{dim})", c='grey', ls="--", zorder=2, linewidth=1.75)
+						if i_ratio != n_ratios:
+							y_val *= self.Var_dict[f'ratio{i_ratio}']
+						else:
+							y_val *= 1-sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)])
+					i_ratio += 1
+					# Plot
+					plt.plot(xm - self.numerical_peak, 
+							 y_val, label=f"Neg. component {comp}:{dim})", c='grey', ls="--", zorder=2, linewidth=1.75)
 
-		for dim in range(0,self.dimensions[1],1):
-			for comp in range(0,self.n_comps,1):
-				y_val = self.pos_func(x=xm,mu=self.RooRealVar_dict[f'mu{comp}'].getValV(), 
-											sigma=self.RooRealVar_dict[f'sigma'].getValV(), 
-											ptau=self.RooRealVar_dict[f'ptau{dim}'].getValV())
-				# normalize accounting for fit ratios
-				integral_cut = sum(y_val) * np.diff(xm)[0]
-				y_val = y_val / integral_cut * sum(n_cut) * dx[0]
-				if (self.n_comps == 0 and (self.dimensions[0]+self.dimensions[1]) == 1):
-					ratio = 1
-				else:
-					if i_ratio != n_ratios:
-						y_val *= self.RooRealVar_dict[f'ratio{i_ratio}'].getValV()
+			for dim in range(0,self.dimensions[1],1):
+				for comp in range(0,self.n_comps,1):
+					y_val = self.pos_func(x=xm,mu=self.Var_dict[f'mu{comp}'], 
+												sigma=self.Var_dict[f'sigma'], 
+												ptau=self.Var_dict[f'ptau{dim}'])
+					# normalize accounting for fit ratios
+					integral_cut = sum(y_val) * np.diff(xm)[0]
+					y_val = y_val / integral_cut * sum(n_cut) * dx[0]
+					if (self.n_comps == 0 and (self.dimensions[0]+self.dimensions[1]) == 1):
+						ratio = 1
 					else:
-						y_val *= 1-sum([self.RooRealVar_dict[f'ratio{r}'].getValV() for r in np.arange(0,n_ratios,1)])
-				i_ratio += 1
-				# Plot
-				plt.plot(xm, y_val, label=f"Pos. component {comp}:{dim})", c='grey', ls="--", zorder=2, linewidth=1.75)
+						if i_ratio != n_ratios:
+							y_val *= self.Var_dict[f'ratio{i_ratio}']
+						else:
+							y_val *= 1-sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)])
+					i_ratio += 1
+					# Plot
+					plt.plot(xm - self.numerical_peak, 
+							 y_val, label=f"Pos. component {comp}:{dim})", c='grey', ls="--", zorder=2, linewidth=1.75)
 
 		# Get y axis limits
 		ylims = plt.ylim()
-		plt.legend()
 		if log:
 			plt.yscale("log")
 			plt.ylim(0.1,2*ylims[1])
+
 		# Zoom in on found peaks
 		if self.peaks.n_peaks != 0:
-			plt.xlim(self.peaks.earliest_left_base-400, self.peaks.latest_right_base+400)
-			if focus != False:
-				plt.xlim(self.peaks.pos[focus]-600, self.peaks.pos[focus]+600)
+			plt.xlim(self.peaks.earliest_left_base - 400 - self.numerical_peak, 
+					 self.peaks.latest_right_base + 400 - self.numerical_peak)
+			if focus != -1:
+				plt.xlim(self.peaks.pos[focus] - 600 - self.numerical_peak, 
+						 self.peaks.pos[focus] + 600 - self.numerical_peak)
 
-		if file_name != False:
-			print(f"Plot fit save as {file_name}")
-			plt.savefig(file_name, dpi=300)
+		# Add axis labels
+		plt.xlabel(f'Time-of-Flight [ns] - {self.numerical_peak:.1f}ns', fontsize=20)
+		plt.ylabel(f'Counts per bin', fontsize=20)
 
+		# Format Legend
+		if legend:
+			plt.legend(fontsize=20)
+
+		# Save plot
+		if file_out != False:
+			print(f"Plot fit save as {file_out}")
+			plt.savefig(file_out, dpi=300)
+
+		# Show plot on canvas
 		if silent == False:
 			plt.show()
 
 		# Clear canvas to avoid printing on top of other plot in batch mode
-		plt.clf()
+		if silent:
+			plt.clf()
 
 class hyperEmg2(FitMethods):
 	"""

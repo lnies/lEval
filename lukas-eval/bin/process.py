@@ -27,7 +27,28 @@ class CustomParser(ConfigParser):
             d[k].pop('__name__', None)
         return d
 
-class MCS6Lst():
+class ProcessorBase():
+    '''
+    Base-class for MR-ToF MS data proessing
+    '''
+    def __init__(self):
+        self.files = []
+        self.data = {}
+        self.pars = {}
+        self.df_dict = {}
+        self.step = 0
+
+    def add_all(self):
+        '''
+        Returns sum of all handled files 
+        '''
+        if len(self.files) == 0:
+            print(f"(ProcessorBase.add_all): Data not processed yet or empty.")
+            return
+        #
+        return pd.concat(self.df_dict)
+
+class MCS6Lst(ProcessorBase):
     '''
     Process each list file contained in array of lst_files
     Param:
@@ -47,7 +68,7 @@ class MCS6Lst():
         """
         Initialize the conversion dataframe and some other varaibles
         """
-        self.lst_files = []
+        self.files = []
         #-------------------------Create a dataframe containing the conversion table from the MCS6A manual--------------------------------------#
         Time_Patch_Value = ['0', '5', '1', '1a', '2a', '22', '32','2','5b','Db','f3','43','c3','3']
         conversion_dict = {'Data_Length' : pd.Series([2,4,4,6,6,6,6,6,8,8,8,8,8,8], index=Time_Patch_Value),
@@ -219,11 +240,11 @@ class MCS6Lst():
 
     def process(self,file_array,to_csv = False, verbose=0):
         """
-        Perform the processing of the lst_files 
+        Perform the processing of the files 
         """
         full_info = False   # for regular application the channel, edge, tag and fifo info are constant so they don't have to be saved. In that case keep full_info = False
-        self.lst_files = file_array
-        for filename in self.lst_files:
+        self.files = file_array
+        for filename in self.files:
             with open(filename,'rb') as listfile:
 
                 binary, time_patch = self.get_time_patch_and_binary(listfile, verbose=verbose)
@@ -245,22 +266,14 @@ class MCS6Lst():
         if full_info == False:
             return(pd.concat(self.df_dict, axis=1))    # convert dict of dataframes into one dataframe with two column name levels
 
-class MPANTMpa():
+class MPANTMpa(ProcessorBase):
     """
     Original from https://gitlab.cern.ch/datanaso/dEval/-/blob/master/etc/mpant.py
     Class handling the MPANT (mpa) data files!
     Data format is 'asc'
     """
-
     def __init__(self):
-        self.data = {}
-        self.pars = {}
-        self.df_dict = {}
-        self.step = 0
-        # self.map_files = file_array
-
-    def increment(self):
-        self.step += 1
+        ProcessorBase.__init__(self) # self.map_files = file_array
 
     def read(self, mpa):
         """
@@ -284,7 +297,18 @@ class MPANTMpa():
         self.pars[key].update(**tmp['MPA4A'])
 
     def process(self, files, to_csv = False):
-        for i, f in enumerate(files):
+        '''
+        Processes MPA file.
+        Parameters:
+        - files: array of files to be processed
+        - to_csv: Defaults to False; if true, saves the processed files
+        Return:
+        - pars: dictionary of measurement parameters
+        - data: 2D array of processed data
+        - data_dict: array of panda dataframes with data
+        '''
+        self.files = files
+        for i, f in enumerate(self.files):
             self.read(f)
             # Convert bins to tof in ns
             name = os.path.basename(f).split('.')[0]
@@ -294,23 +318,17 @@ class MPANTMpa():
         #
         return self.pars, self.data, pd.concat(self.df_dict, axis=1)
 
-class MCDWIN887():
+class MCDWIN887(ProcessorBase):
     """
     Original from: https://gitlab.cern.ch/datanaso/dEval/-/blob/master/etc/mcdwin.py
     Class handling the MCDWIN (.887) data files!
     Pass the .887 file and the data format is 'csv, asc' is handled automatically.
     """
     def __init__(self):
-        self.data = {}
-        self.pars = {}
-        self.df_dict = {}
-        self.step = 0
+        ProcessorBase.__init__(self) # self.map_files = file_array
 
     def get_signals(self):
         return self.next_887, self.status_887
-
-    def increment(self):
-        self.step += 1
 
     def read(self, p887):
         """
