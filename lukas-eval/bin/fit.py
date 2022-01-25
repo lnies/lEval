@@ -23,19 +23,20 @@ class FitToDict:
 	'''
 	Class for reading fit files created by the fit functions
 	'''
-	def __init__(self):
+	def __init__(self, file_path, verbose = 0):
 		self.fit = {}
 		self.line_nb = 0
 		self.res_table_line = 0
 		self.fit_val_line = 0
-		self.file_path = ''
+		self.file_path = file_path
+		# Read file
+		self.fit = self.__read(verbose)
 
-	def __initialize(self, file_path, verbose = 0):
+	def __initialize(self, verbose = 0):
 		'''
 		PRIVATE: Init file, read the meta data into dict and save where the results table and fit values table start
 		'''
 		# open the file
-		self.file_path = file_path
 		file = open(self.file_path)
 		for line in file.readlines():
 			# Increment line counter
@@ -72,20 +73,25 @@ class FitToDict:
 			except Exception as e:
 				if verbose > 0: 
 					print(str(e) + "line:" +line)
-					
-	def __read_tables(self):
+
+	def __read_tables(self, verbose = 0):
 		'''
 		Use pandas to read the tables 
 		'''
 		#
 		if 'RESULTS-TABLE' in self.fit:
-			n_footer = self.line_nb - self.fit_val_line + 1       
+			if 'FIT-VALUES' in self.fit:
+				n_footer = self.line_nb - self.fit_val_line + 1    
+			else:
+				n_footer = 0 
+			if verbose > 0: print(f"res_table_line: {self.res_table_line}\nn_footer: {n_footer}")  
 			self.fit['RESULTS-TABLE'] = pd.read_csv(self.file_path, header=self.res_table_line, delimiter=' ', 
 													skipfooter=n_footer, engine='python')
 		if 'FIT-VALUES' in self.fit: 
+			if verbose > 0: print(f"fit_val_line: {self.fit_val_line}")  
 			self.fit['FIT-VALUES'] = pd.read_csv(self.file_path, header=self.fit_val_line, delimiter=' ')
-					
-	def read(self, file_path):
+	
+	def __read(self, verbose = 0):
 		'''
 		Function for reading a fit into a dict
 		Parameters:
@@ -94,11 +100,35 @@ class FitToDict:
 			- Dictionary with meta data, fit results, and fit values for plotting
 		'''
 		# 
-		self.__initialize(file_path)
+		self.__initialize()
 		# read results table
-		self.__read_tables()
+		self.__read_tables(verbose)
 		#
 		return self.fit
+
+	def get_val(self, key, value = None):
+		'''
+		Returns value either from meta-data dictionary or from the data frames
+		Parameters:
+			- key: name of value to be fetched
+		'''
+		#
+		if key in self.fit['META-DATA']:
+			return self.fit['META-DATA'][key]
+		#
+		elif key in self.fit['RESULTS-TABLE']['var'].to_numpy():
+			if not value:
+				print("Key {key} specified, but no value (e.g. in df for key 'mu0', value could be 'value'")
+				return 
+			else:
+				if value not in self.fit['RESULTS-TABLE'].columns:
+					print("Value {value} not in dataframe")
+					return 
+				return(float( self.fit['RESULTS-TABLE'][value][self.fit['RESULTS-TABLE']['var']==key] ))
+		#
+		else:
+			print(f"Key {key} does not exist in the fit dictionary.")
+			return
 
 class FitMethods():
 	"""
@@ -920,8 +950,7 @@ class hyperEmg(FitMethods):
 			- xvalues of fit
 			- yvalues of fit 
 		'''
-		fitfromfile = FitToDict()
-		fitfromfile.read(file)
+		fitfromfile = FitToDict(file)
 		#
 		if not 'FIT-VALUES' in fitfromfile.fit:
 			print(f"Fit file {file} has no fit values that were exported.")

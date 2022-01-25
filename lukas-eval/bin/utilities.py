@@ -26,6 +26,16 @@ import time
 import sys
 import re
 
+def custom_colors():
+    # Color definition from coolors.co
+    colors = {
+        # https://coolors.co/d1495b-edae49-abe188-1a6fdf-0c0a3e
+        'Fall_rgb': {'red':'#D1495B', 'orange':'#EDAE49', 'green':'#ABE188','blue':'#1A6FDF','purple':'#0C0A3E'},
+        'Jo-s_favs': {'black': "#000000", 'grey': "#C0C0C0", 'purple': "#C177DA", 'blue': "#00A2FF",
+                        'red': "#FF2D55", 'orange': "#FFCC00", 'green': "#61D935", 'lightblue': "#6FF1E9",}
+    }
+    return colors
+
 class AME():
     '''
     Base handling AME related stuff
@@ -223,6 +233,53 @@ class MRToFMS(AME):
         #
         return math.sqrt( (del_C_tof*C_tof_err)**2 + (del_m1 * m1_err)**2 + (del_m2 * m2_err)**2 )
 
+    # PLOT FUNCTIONS
+
+    def simple_error_plt(self, y, y_err, x_labels, x_label='', y_label='', title=''):
+        '''
+        Simple scatter plot with y error bars.
+        Parameters:
+            - y: y-values
+            - y_err: y-errors
+            - x_labels: array of strings to be used as x-labels
+            - x_label: x-axis labeling
+            - y_label: y-axis labeling
+            - title: plot title
+        '''
+        colors = custom_colors()
+        mpl.rc('text', usetex=False)
+        fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(4.5*1.5, 4.5))
+
+        x = np.arange(0,len(x_labels),1)
+
+        ax.errorbar(x, y, y_err,
+                   fmt='o', color=colors['Jo-s_favs']['black'], zorder = 2, 
+                   #label="AME2020 - ISOLTRAP", 
+                   fillstyle='full', mfc="black", linewidth=2, ms =10
+        )
+
+        ax.set_ylabel(y_label, size=14) #fontweight='bold')
+        ax.set_xlabel(x_label, size=14) #fontweight='bold')
+        ax.tick_params(direction='out')
+        #
+
+        ax_t = ax.secondary_xaxis('top')
+        ax_t.set_xticks(x)
+        # ax_r = ax.secondary_yaxis('right')
+        # # ax.set_xlabel("Mercury Isotopes", size=14, fontweight='bold')
+        ax_t.tick_params(axis='x', direction='in', labeltop=False)
+        # ax_r.tick_params(axis='y', direction='in', labelright=False)
+
+        handles, labels = ax.get_legend_handles_labels()
+        handles = [h[0] for h in handles] # Remove errorbars from legend
+        ax.legend(handles, labels, fontsize=12, frameon=False, ncol=1, loc="upper left")
+
+        plt.xticks(x, x_labels, rotation=0, size = 10)
+        plt.tight_layout()
+        plt.title(title)
+        # plt.savefig("./Mercury_Masses_Comparison.pdf", dpi=300)
+        plt.show()
+
 class Peaks:
     """ 
     Wrapper class for finding peaks in an MR-ToF MS spectrum
@@ -371,20 +428,43 @@ class Peaks:
         
     def plot2d(self, bins=500, focus=-1, log=False):
         """
-        
+        Plot 2D Histogram with found peaks.
         """
-        plt.rcParams["figure.figsize"] = (5,15)
+        # plt.rcParams["figure.figsize"] = (10,4)
         tof = self.file.tof
         sweep = self.file.sweep
-        plt.plot(tof, sweep, 'o', alpha=0.05, ms=2, label='unbinned data')
+
+        # Create plot canvas
+        fig, ((ax_x, blank),(ax_0, ax_y)) = plt.subplots(2,2,sharex='col',sharey='row', figsize=(9,9),
+                                                 gridspec_kw={'height_ratios':[1,4],
+                                                             'width_ratios':[4,1],
+                                                             'hspace': 0.05,
+                                                             'wspace':0.05})
+
+        # faster binning for projections than histograms -> necessary in order to automatically find peaks
+        x_proj = self.file.tof.value_counts(bins=500).sort_index()
+        y_proj = self.file.sweep.value_counts(bins=500).sort_index()
+
+        # main plotting
+        self.file.plot(x='tof', y='sweep', style='o', alpha=0.15, ms=2, ax=ax_0, label='unbinned data')
+        ax_x.semilogy(x_proj.index.mid.to_numpy(), x_proj.to_numpy())
+        ax_y.plot(y_proj.to_numpy(), y_proj.index.mid.to_numpy())
+
+        # plt.plot(tof, sweep, 'o', alpha=0.15, ms=2, label='unbinned data')
         for i in range(self.n_peaks):
-            plt.axvline(self.pos[i], c='r', linewidth=1, zorder=3)
-        if focus==False:
-            plt.xlim(self.earliest_left_base-200, self.latest_right_base+200)
-        else:
+            ax_0.axvline(self.pos[i], c='r', linewidth=1, zorder=3)
+            ax_x.axvline(self.pos[i], c='r', linewidth=1, zorder=3)
+        if focus != -1:
             plt.xlim(self.pos[focus]-300, self.pos[focus]+300)
-        plt.xlabel("Time-of-Flight [ns]")
-        plt.ylabel("Rolling sweep number")
+
+        #
+        ax_0.set_xlabel(f'Time-of-Flight [ns]', fontsize=20)
+        ax_0.set_ylabel(f'Rolling sweep number', fontsize=20)
+        ax_x.set_ylabel('# / 0.8 ns', fontsize=20)
+        ax_y.set_xlabel('# / 10 sw.', fontsize=20)
+        ax_y.xaxis.set_ticks_position('top')
+        ax_y.xaxis.set_label_position('top')
+        #
         plt.show()
         
 class softCool(Peaks):
@@ -436,7 +516,7 @@ class softCool(Peaks):
                     [
                          df_cut[(df_cut.sweep >= i) & (df_cut.sweep < i+self.chunk_size)]
                          for i 
-                         in range(0,df.sweep.iloc[-1], self.chunk_size)
+                         in range(0,int(df.sweep.iloc[-1]), self.chunk_size)
                     ]
             ]
         if method=="median":
@@ -447,7 +527,7 @@ class softCool(Peaks):
                     [
                          df_cut[(df_cut.sweep >= i) & (df_cut.sweep < i+self.chunk_size)]
                          for i 
-                         in range(0,df.sweep.iloc[-1], self.chunk_size)
+                         in range(0,int(df.sweep.iloc[-1]), self.chunk_size)
                     ]
             ]
         if method=="average":
@@ -458,13 +538,21 @@ class softCool(Peaks):
                     [
                          df_cut[(df_cut.sweep >= i) & (df_cut.sweep < i+self.chunk_size)]
                          for i 
-                         in range(0,df.sweep.iloc[-1], self.chunk_size)
+                         in range(0,int(df.sweep.iloc[-1]), self.chunk_size)
                     ]
             ]
 
-    def cool(self, method="mean", tof_cut_left=300, tof_cut_right=300, chunk_size=10, post_cool = False):
+    def cool(self, select_peak = 0, method="mean", tof_cut_left=300, tof_cut_right=300, chunk_size=10, 
+             post_cool = False, to_csv = False):
         """
         Routine for performing the cooling
+        Parameters:
+            - select_peak: number of peak to center on for calculating correction factor
+            - method: 'mean', 'median', 'average'; to calculate correction value for chunk
+            - tof_cut_left: left tof cut
+            - tof_cut_right: right tof cut
+            - post_cool: set true for 2nd and more cooling interations
+            - to_csv: if file name givem, saved as csv
         """
         # df to be cooled
         self.post_cool = post_cool
@@ -474,6 +562,7 @@ class softCool(Peaks):
             df_to_cool = self.coolfile
         #
         self.chunk_size = chunk_size
+        self.selected_peak = select_peak
         tof_cut = [self.peaks.pos[self.selected_peak]-tof_cut_left, self.peaks.pos[self.selected_peak]+tof_cut_right]
         self.calc_corr_factors(df_to_cool, tof_cut, self.chunk_size)
         # print(f"Length correction factors: {len(self.corr_factors)}")
@@ -491,7 +580,7 @@ class softCool(Peaks):
             [
                  [df_to_cool[(df_to_cool.sweep >= i) & (df_to_cool.sweep < i+self.chunk_size)].tof, int(i/self.chunk_size)]
                  for i 
-                 in range(0,df_to_cool.sweep.iloc[-1], self.chunk_size)
+                 in range(0,int(df_to_cool.sweep.iloc[-1]), self.chunk_size)
              ]
         ]
         # print(self.coolfile)
@@ -509,12 +598,20 @@ class softCool(Peaks):
         # Drop empty sweeps
         for idx in self.coolfile[self.coolfile.tof.isnull()].index:
             self.coolfile = self.coolfile.drop(idx)
+
+        if to_csv != False:
+            self.coolfile.to_csv(to_csv, index=False)
+
         # Export the cooled df
         return self.coolfile
         
-    def plot2d(self, bins=500, focus=False, log=False):
+    def plot2d(self, bins=500, focus=-1, log=False):
         """
         Plot the 2d histograms to compare the corrected and not corrected values
+        Parameters:
+            - bins: number of bins to rebin
+            - focus: peak number to focus on. Defaults to -1 (no focus)
+            - log: log scale
         """
         fig, (ax0, ax1) = plt.subplots(1,2,sharey='row', figsize=(7,7))
         tof = self.file.tof
@@ -522,7 +619,7 @@ class softCool(Peaks):
         # Plot unbinned and un-corrected data
         ax0.plot(tof, sweep, 'o', alpha=0.05, ms=2, label='unbinned data')
         # Plot correction factors
-        y_corr = range(0,self.file.sweep.iloc[-1], self.chunk_size)
+        y_corr = range(0,int(self.file.sweep.iloc[-1]), self.chunk_size)
         x_corr = self.corr_factors
         ax0.plot(x_corr, y_corr, c='r', linewidth=1, zorder=3)
         # Plot corrected data
@@ -530,16 +627,13 @@ class softCool(Peaks):
         sweep = self.coolfile.sweep
         ax1.plot(tof, sweep, 'o', alpha=0.05, ms=2, label='unbinned data')
         if self.post_cool:
-            y_corr = range(0,self.coolfile.sweep.iloc[-1], self.chunk_size)
+            y_corr = range(0,int(self.coolfile.sweep.iloc[-1]), self.chunk_size)
             x_corr = self.corr_factors
             ax1.plot(x_corr, y_corr, c='r', linewidth=1, zorder=3)
         #
         # for i in range(self.n_peaks):
         #     plt.axvline(self.pos[i], c='r', linewidth=1, zorder=3)
-        if focus==False:
-            ax0.set_xlim(self.peaks.earliest_left_base-300, self.peaks.latest_right_base+300)
-            ax1.set_xlim(self.peaks.earliest_left_base-300, self.peaks.latest_right_base+300)
-        else:
+        if focus!=-1:
             ax0.set_xlim(self.peaks.pos[focus]-300, self.peaks.pos[focus]+300)
             ax1.set_xlim(self.peaks.pos[focus]-300, self.peaks.pos[focus]+300)
 

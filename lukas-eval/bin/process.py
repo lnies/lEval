@@ -38,15 +38,32 @@ class ProcessorBase():
         self.df_dict = {}
         self.step = 0
 
-    def add_all(self):
+    def add_all(self, to_csv=False):
         '''
-        Returns sum of all handled files 
+        Returns sum of all handled files while incrementing sweep numbers from one file to the next to 
+        get a rolling sweep number. 
+        Parameters:
+            - to_csv: File name to store combined .csv in
+        Return:
+            - flattened and sweep-adjusted dataframe
         '''
         if len(self.files) == 0:
             print(f"(ProcessorBase.add_all): Data not processed yet or empty.")
             return
+        # Adjust the sweep numbers
+        for i in np.arange(0, len(self.df_dict)):
+            if i == 0: 
+                continue
+            key = list(self.df_dict.keys())[i]
+            key_m1 = list(self.df_dict.keys())[i-1]
+            self.df_dict[key]['sweep'] += self.df_dict[key_m1].iloc[-1]['sweep'] + 1
         #
-        return pd.concat(self.df_dict)
+        df = pd.concat(self.df_dict)
+        # Save to file if file name is passed
+        if to_csv != False:
+            df.to_csv(to_csv, index=False)
+        #
+        return df
 
 class MCS6Lst(ProcessorBase):
     '''
