@@ -58,7 +58,7 @@ class AME():
                                       header=28,
                                       index_col=False)
         else:
-            print(f"(error in AME__init__): Wrong version parsed. Only 'ame20' available.")
+            print(f"(error in AME.__init__): Wrong version parsed. Only 'ame20' available.")
         
     def get_value(self, isotope="1H", value="mass", error=False):
         '''
@@ -69,39 +69,162 @@ class AME():
             error: returns error on value
         '''
         # Split isotope string into mass number and element string
-        A = int(re.split("(\\d+)",isotope)[1])
-        X = re.split("(\\d+)",isotope)[2]
-        if value == 'mass':
-            # Get dataframe index of isotope 
-            idx = -1
-            idx_list = self.ame.index[(self.ame["A"]==A) & (self.ame["element"]==X)].tolist()
-            if len(idx_list) < 1:
-                print(f"(Error in get_value for A={A}, X={X}): Can't find isotope with given values.")
-                return
-            elif len(idx_list) > 1:
-                print(f"(Error in get_value for A={A}, X={X}): Found multiple isotopes with given values.")
-                return
-            else:
-                idx = idx_list[0]
-            #
-            if not error:
-                # First convert the feteched dataframe entries to str, remove the hashtag, convert to float 
-                try:
-                    raw = float(str(self.ame.iloc[idx]['atomic_mass_raw']).strip('#'))
-                    comma = float(str(self.ame.iloc[idx]['atomic_mass_comma']).strip('#'))/1e6
-                except(Exception, TypeError) as err:
-                    print(f"(TypeError in get_value for A={A}, X={X}): {err}")
+        split_string = re.split("(\\d+)",isotope)
+        fetched_value = 0 
+        # Iterate through every isotope in the chain of isotopes passed (to handle molecules)
+        for i in range(1, len(split_string)-1, 2):
+            A = int(split_string[i])
+            X = split_string[i+1]
+            if value == 'mass':
+                # Get dataframe index of isotope 
+                idx = -1
+                idx_list = self.ame.index[(self.ame["A"]==A) & (self.ame["element"]==X)].tolist()
+                if len(idx_list) < 1:
+                    print(f"(Error in get_value for A={A}, X={X}): Can't find isotope with given values.")
                     return
-                return (raw+comma)
-            else:
-                try:
-                    data = float(str(self.ame.iloc[idx]['atomic_mass_err']).strip('#'))
-                except(Exception, TypeError) as err:
-                    print(f"(TypeError in get_value for A={A}, X={X}): {err}")
+                elif len(idx_list) > 1:
+                    print(f"(Error in get_value for A={A}, X={X}): Found multiple isotopes with given values.")
                     return
-                return data
+                else:
+                    idx = idx_list[0]
+                #
+                if not error:
+                    # First convert the feteched dataframe entries to str, remove the hashtag, convert to float 
+                    try:
+                        raw = float(str(self.ame.iloc[idx]['atomic_mass_raw']).strip('#'))
+                        comma = float(str(self.ame.iloc[idx]['atomic_mass_comma']).strip('#'))/1e6
+                    except(Exception, TypeError) as err:
+                        print(f"(TypeError in get_value for A={A}, X={X}): {err}")
+                        return
+                    fetched_value += raw+comma
+                else:
+                    try:
+                        data = float(str(self.ame.iloc[idx]['atomic_mass_err']).strip('#'))
+                    except(Exception, TypeError) as err:
+                        print(f"(TypeError in get_value for A={A}, X={X}): {err}")
+                        return
+                    fetched_value += data**2
+            else:
+                print(f"(Error in get_value: value={value} unknown.")
+        #
+        if not error:
+            return fetched_value
+        else: 
+            return math.sqrt(fetched_value)
+
+class FitToDict:
+    '''
+    Class for reading fit files created by the fit functions. Stores fit in .fit dictionary
+    Initialization:
+    Parameters
+        - file_path: path to fit file
+    '''
+    def __init__(self, file_path, verbose = 0):
+        self.fit = {}
+        self.line_nb = 0
+        self.res_table_line = 0
+        self.fit_val_line = 0
+        self.file_path = file_path
+        # Read file
+        self.fit = self.__read(verbose)
+
+    def __initialize(self, verbose = 0):
+        '''
+        PRIVATE: Init file, read the meta data into dict and save where the results table and fit values table start
+        '''
+        # open the file
+        file = open(self.file_path)
+        for line in file.readlines():
+            # Increment line counter
+            self.line_nb += 1
+            # get rid of the newline
+            line = line[:-1]
+            try:
+                # this will break if you have whitespace on the "blank" lines
+                if line:
+                    # skip comment lines
+                    if line[0] == '#': next
+                    # this assumes everything starts on the first column
+                    if line[0] == '[':
+                        # strip the brackets
+                        section = line[1:-1]
+                        # create a new section if it doesn't already exist
+                        if not section in self.fit:
+                            self.fit[section] = {}
+                            # Save where which section is
+                            if section == 'RESULTS-TABLE':
+                                self.res_table_line = self.line_nb
+                            if section == 'FIT-VALUES':
+                                self.fit_val_line = self.line_nb
+                    else:
+                        # split on first the equal sign
+                        (key, val) = line.split('=', 1)
+                        # create the attribute as a list if it doesn't
+                        # exist under the current section, this will
+                        # break if there's no section set yet
+                        if not key in self.fit[section]:
+                            self.fit[section][key] = val
+                        # append the new value to the list
+                        #sections[section][key].append(val)
+            except Exception as e:
+                if verbose > 0: 
+                    print(str(e) + "line:" +line)
+
+    def __read_tables(self, verbose = 0):
+        '''
+        Use pandas to read the tables 
+        '''
+        #
+        if 'RESULTS-TABLE' in self.fit:
+            if 'FIT-VALUES' in self.fit:
+                n_footer = self.line_nb - self.fit_val_line + 1    
+            else:
+                n_footer = 0 
+            if verbose > 0: print(f"res_table_line: {self.res_table_line}\nn_footer: {n_footer}")  
+            self.fit['RESULTS-TABLE'] = pd.read_csv(self.file_path, header=self.res_table_line, delimiter=' ', 
+                                                    skipfooter=n_footer, engine='python')
+        if 'FIT-VALUES' in self.fit: 
+            if verbose > 0: print(f"fit_val_line: {self.fit_val_line}")  
+            self.fit['FIT-VALUES'] = pd.read_csv(self.file_path, header=self.fit_val_line, delimiter=' ')
+    
+    def __read(self, verbose = 0):
+        '''
+        Function for reading a fit into a dict
+        Parameters:
+            - file_path: Path to file
+        Return:
+            - Dictionary with meta data, fit results, and fit values for plotting
+        '''
+        # 
+        self.__initialize()
+        # read results table
+        self.__read_tables(verbose)
+        #
+        return self.fit
+
+    def get_val(self, key, value = None):
+        '''
+        Returns value either from meta-data dictionary or from the data frames
+        Parameters:
+            - key: name of value to be fetched
+        '''
+        #
+        if key in self.fit['META-DATA']:
+            return self.fit['META-DATA'][key]
+        #
+        elif key in self.fit['RESULTS-TABLE']['var'].to_numpy():
+            if not value:
+                print("Key {key} specified, but no value (e.g. in df for key 'mu0', value could be 'value'")
+                return 
+            else:
+                if value not in self.fit['RESULTS-TABLE'].columns:
+                    print("Value {value} not in dataframe")
+                    return 
+                return(float( self.fit['RESULTS-TABLE'][value][self.fit['RESULTS-TABLE']['var']==key] ))
+        #
         else:
-            print(f"(Error in get_value: value={value} unknown.")
+            print(f"Key {key} does not exist in the fit dictionary.")
+            return
 
 class MRToFMS(AME):
     '''
@@ -132,6 +255,8 @@ class MRToFMS(AME):
         self.m_85Rb_err = self.get_value('85Rb', 'mass', error=True)
         self.m_133Cs = self.get_value('133Cs', 'mass')
         self.m_133Cs_err = self.get_value('133Cs', 'mass', error=True)
+
+    # Calculation functions
 
     def calc_weighted_average(self, x, s):
         ###
@@ -233,6 +358,62 @@ class MRToFMS(AME):
         #
         return math.sqrt( (del_C_tof*C_tof_err)**2 + (del_m1 * m1_err)**2 + (del_m2 * m2_err)**2 )
 
+    # More involved functions
+
+    def return_mass(self, isotope, ref1, ref2, 
+                          file_isotope, file_ref1, file_ref2,
+                          centroid = 'mu0',
+                          print_results = False):
+        '''
+        Calculates mass and mass error from fit files in form of FitToDict objects passed to method
+
+        '''
+        m_ref1 = self.get_value(ref1)
+        m_ref1_err = self.get_value(ref1,error=True)
+        m_ref2 = self.get_value(ref2)
+        m_ref2_err = self.get_value(ref2,error=True)
+        #
+        A = int(re.split("(\\d+)",isotope)[1])
+        #
+        m_isotope_AME = self.get_value(isotope)
+        m_isotope_AME_err = self.get_value(isotope,error=True)
+        #
+
+        isotope_fit = FitToDict(file_isotope)
+        isotope_gs_t = float(isotope_fit.get_val(centroid, 'value'))
+        isotope_gs_t_err = float(isotope_fit.get_val('mu0', 'error'))
+        #
+        ref1_fit = FitToDict(file_ref1)
+        ref1_t = float(ref1_fit.get_val(centroid, 'value'))
+        ref1_t_err = float(ref1_fit.get_val('mu0', 'error'))
+        #
+        ref2_fit = FitToDict(file_ref2)
+        ref2_t = float(ref2_fit.get_val(centroid, 'value'))
+        ref2_t_err = float(ref2_fit.get_val('mu0', 'error'))
+        #
+        C_tof = self.calc_C_ToF(isotope_gs_t, ref1_t, ref2_t)
+        C_tof_err = self.calc_C_ToF_err(t=isotope_gs_t, t_err=isotope_gs_t_err,
+                                                       t1=ref1_t, t1_err=ref1_t_err,
+                                                       t2=ref2_t, t2_err=ref2_t_err)
+        #
+        m_isotope = self.calc_sqrt_m(C_tof, m_ref1, m_ref2)**2
+        m_isotope_err = self.calc_m_err(C_tof, C_tof_err, 
+                                               m_ref1, m_ref1_err/self.u ,
+                                               m_ref2, m_ref2_err/self.u)
+
+        me_isotope = (m_isotope-A) * self.u # [keV]
+        me_isotope_err = m_isotope_err * self.u # [keV]
+
+        # 
+        if print_results:
+            print(f"Result for {isotope}:\n\
+                - Mass Excess ISOLTRAP: {me_isotope:.1f}({me_isotope_err:.1f})keV\n\
+                - Mass Excess {self.ame_version}: {(m_isotope_AME-A)*self.u:.1f}({m_isotope_AME_err:.1f})keV\n\
+                - Mass Difference ISOLTRAP-{self.ame_version}: {abs(me_isotope)-abs((m_isotope_AME-A)*self.u):.1f}keV"
+                )
+
+        return m_isotope, m_isotope_err, me_isotope, me_isotope_err
+    
     # PLOT FUNCTIONS
 
     def simple_error_plt(self, y, y_err, x_labels, x_label='', y_label='', title=''):
