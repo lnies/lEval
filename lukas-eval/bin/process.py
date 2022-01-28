@@ -258,6 +258,10 @@ class MCS6Lst(ProcessorBase):
     def process(self,file_array,to_csv = False, verbose=0):
         """
         Perform the processing of the files 
+        Parameters:
+            - file_array: Array of file-paths
+            - to_csv: if true, saves files under it's file name with .csv extension
+            - verbose: verbosity
         """
         full_info = False   # for regular application the channel, edge, tag and fifo info are constant so they don't have to be saved. In that case keep full_info = False
         self.files = file_array

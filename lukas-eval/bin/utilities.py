@@ -21,6 +21,7 @@ import scipy as sc
 from scipy.signal import find_peaks
 from scipy.optimize import least_squares
 from scipy import stats
+import os
 import math 
 import time
 import sys
@@ -75,7 +76,7 @@ class AME():
         for i in range(1, len(split_string)-1, 2):
             A = int(split_string[i])
             X = split_string[i+1]
-            if value == 'mass':
+            if value == 'mass' or value == 'mass_excess':
                 # Get dataframe index of isotope 
                 idx = -1
                 idx_list = self.ame.index[(self.ame["A"]==A) & (self.ame["element"]==X)].tolist()
@@ -90,16 +91,26 @@ class AME():
                 #
                 if not error:
                     # First convert the feteched dataframe entries to str, remove the hashtag, convert to float 
-                    try:
-                        raw = float(str(self.ame.iloc[idx]['atomic_mass_raw']).strip('#'))
-                        comma = float(str(self.ame.iloc[idx]['atomic_mass_comma']).strip('#'))/1e6
-                    except(Exception, TypeError) as err:
-                        print(f"(TypeError in get_value for A={A}, X={X}): {err}")
-                        return
-                    fetched_value += raw+comma
+                    if value == 'mass':
+                        try:
+                            raw = float(str(self.ame.iloc[idx]['atomic_mass_raw']).strip('#'))
+                            comma = float(str(self.ame.iloc[idx]['atomic_mass_comma']).strip('#'))/1e6
+                        except(Exception, TypeError) as err:
+                            print(f"(TypeError in get_value for A={A}, X={X}): {err}")
+                            return
+                        fetched_value += raw+comma
+                    elif value == 'mass_excess':
+                        try:
+                            fetched_value = float(str(self.ame.iloc[idx]['mass_excess']).strip('#'))
+                        except(Exception, TypeError) as err:
+                            print(f"(TypeError in get_value for A={A}, X={X}): {err}")
+                            return
                 else:
                     try:
-                        data = float(str(self.ame.iloc[idx]['atomic_mass_err']).strip('#'))
+                        if value == 'mass': 
+                            data = float(str(self.ame.iloc[idx]['atomic_mass_err']).strip('#'))
+                        elif value == 'mass_excess':
+                            data = float(str(self.ame.iloc[idx]['mass_excess_err']).strip('#'))
                     except(Exception, TypeError) as err:
                         print(f"(TypeError in get_value for A={A}, X={X}): {err}")
                         return
@@ -226,9 +237,9 @@ class FitToDict:
             print(f"Key {key} does not exist in the fit dictionary.")
             return
 
-class MRToFMS(AME):
+class MRToFUtils(AME):
     '''
-    Base class for performing mass extraction from MR-ToF MS data using the C_{ToF} approach.
+    Utility class for performing mass extraction from MR-ToF MS data using the C_{ToF} approach.
     Params:
         path_to_ame: path to ame mass file
         ame_version: version of AME. Defaults to 2020
@@ -358,65 +369,11 @@ class MRToFMS(AME):
         #
         return math.sqrt( (del_C_tof*C_tof_err)**2 + (del_m1 * m1_err)**2 + (del_m2 * m2_err)**2 )
 
-    # More involved functions
-
-    def return_mass(self, isotope, ref1, ref2, 
-                          file_isotope, file_ref1, file_ref2,
-                          centroid = 'mu0',
-                          print_results = False):
-        '''
-        Calculates mass and mass error from fit files in form of FitToDict objects passed to method
-
-        '''
-        m_ref1 = self.get_value(ref1)
-        m_ref1_err = self.get_value(ref1,error=True)
-        m_ref2 = self.get_value(ref2)
-        m_ref2_err = self.get_value(ref2,error=True)
-        #
-        A = int(re.split("(\\d+)",isotope)[1])
-        #
-        m_isotope_AME = self.get_value(isotope)
-        m_isotope_AME_err = self.get_value(isotope,error=True)
-        #
-
-        isotope_fit = FitToDict(file_isotope)
-        isotope_gs_t = float(isotope_fit.get_val(centroid, 'value'))
-        isotope_gs_t_err = float(isotope_fit.get_val('mu0', 'error'))
-        #
-        ref1_fit = FitToDict(file_ref1)
-        ref1_t = float(ref1_fit.get_val(centroid, 'value'))
-        ref1_t_err = float(ref1_fit.get_val('mu0', 'error'))
-        #
-        ref2_fit = FitToDict(file_ref2)
-        ref2_t = float(ref2_fit.get_val(centroid, 'value'))
-        ref2_t_err = float(ref2_fit.get_val('mu0', 'error'))
-        #
-        C_tof = self.calc_C_ToF(isotope_gs_t, ref1_t, ref2_t)
-        C_tof_err = self.calc_C_ToF_err(t=isotope_gs_t, t_err=isotope_gs_t_err,
-                                                       t1=ref1_t, t1_err=ref1_t_err,
-                                                       t2=ref2_t, t2_err=ref2_t_err)
-        #
-        m_isotope = self.calc_sqrt_m(C_tof, m_ref1, m_ref2)**2
-        m_isotope_err = self.calc_m_err(C_tof, C_tof_err, 
-                                               m_ref1, m_ref1_err/self.u ,
-                                               m_ref2, m_ref2_err/self.u)
-
-        me_isotope = (m_isotope-A) * self.u # [keV]
-        me_isotope_err = m_isotope_err * self.u # [keV]
-
-        # 
-        if print_results:
-            print(f"Result for {isotope}:\n\
-                - Mass Excess ISOLTRAP: {me_isotope:.1f}({me_isotope_err:.1f})keV\n\
-                - Mass Excess {self.ame_version}: {(m_isotope_AME-A)*self.u:.1f}({m_isotope_AME_err:.1f})keV\n\
-                - Mass Difference ISOLTRAP-{self.ame_version}: {abs(me_isotope)-abs((m_isotope_AME-A)*self.u):.1f}keV"
-                )
-
-        return m_isotope, m_isotope_err, me_isotope, me_isotope_err
-    
     # PLOT FUNCTIONS
 
-    def simple_error_plt(self, y, y_err, x_labels, x_label='', y_label='', title=''):
+    def simple_error_plt(self, y, y_err, x_labels, 
+                         data_legend_label = "ISOLTRAP", x_label='', y_label='', title='', 
+                         ref_value=None, ref_err=None, ref_legend_label='AME20 Error'):
         '''
         Simple scatter plot with y error bars.
         Parameters:
@@ -435,12 +392,12 @@ class MRToFMS(AME):
 
         ax.errorbar(x, y, y_err,
                    fmt='o', color=colors['Jo-s_favs']['black'], zorder = 2, 
-                   #label="AME2020 - ISOLTRAP", 
+                   label=data_legend_label, 
                    fillstyle='full', mfc="black", linewidth=2, ms =10
         )
 
-        ax.set_ylabel(y_label, size=14) #fontweight='bold')
-        ax.set_xlabel(x_label, size=14) #fontweight='bold')
+        ax.set_ylabel(y_label, size=18) #fontweight='bold')
+        ax.set_xlabel(x_label, size=18) #fontweight='bold')
         ax.tick_params(direction='out')
         #
 
@@ -451,15 +408,163 @@ class MRToFMS(AME):
         ax_t.tick_params(axis='x', direction='in', labeltop=False)
         # ax_r.tick_params(axis='y', direction='in', labelright=False)
 
-        handles, labels = ax.get_legend_handles_labels()
-        handles = [h[0] for h in handles] # Remove errorbars from legend
-        ax.legend(handles, labels, fontsize=12, frameon=False, ncol=1, loc="upper left")
 
-        plt.xticks(x, x_labels, rotation=0, size = 10)
-        plt.tight_layout()
-        plt.title(title)
+        if ref_value is not None and ref_err is not None:
+            # Error band
+            ax.fill_between(x, ref_value-ref_err, ref_value+ref_err, facecolor='0.5', alpha=0.5,
+                            label = ref_legend_label)
+
+            # plt.axhspan(ref_value-ref_err, ref_value+ref_err, facecolor='0.5', alpha=0.5)
+
+        handles, labels = ax.get_legend_handles_labels()
+        # handles = [h[0] for h in handles] # Remove errorbars from legend
+            
+        plt.legend()#handles, labels, fontsize=12, frameon=False, ncol=1, loc="upper left")
+            
+        plt.xticks(x, x_labels, size = 10, rotation = 0)
+        # plt.tight_layout()
+        plt.title(title, fontsize=20)
         # plt.savefig("./Mercury_Masses_Comparison.pdf", dpi=300)
         plt.show()
+
+class MRToFIsotope(MRToFUtils):
+    '''
+    Class for handling and storing mass data 
+    Params:
+        - isotope, ref1, ref2: strings of isotopes to be used
+        - n_revs: number of revs
+        - path_to_ame: path to ame mass file
+        - ame_version: version of AME. Defaults to 2020
+    Inheritance:
+        AME: Inherits functionalities from AME 
+        MRToFUtils: Inherits functionalities for calculating masses 
+    '''
+    def __init__(self, isotope, ref1, ref2, n_revs, path_to_ame, ame_version = 'ame20'):
+        # Init base class
+        MRToFUtils.__init__(self, path_to_ame = path_to_ame, ame_version = ame_version)
+        # 
+        self.isotope = isotope
+        self.A = int(re.split("(\\d+)",isotope)[1])
+        self.ref1 = ref1
+        self.ref2 = ref2 
+        self.n_revs = n_revs
+        #
+        self.m_ref1 = self.get_value(self.ref1)
+        self.m_ref1_err = self.get_value(self.ref1,error=True)
+        self.m_ref2 = self.get_value(self.ref2)
+        self.m_ref2_err = self.get_value(self.ref2,error=True)
+        #
+        self.m_isotope_AME = self.get_value(isotope)
+        self.m_isotope_AME_err = self.get_value(isotope,error=True)        
+
+    def calc_mass(self, file_isotope, file_ref1, file_ref2,
+                        centroid = 'mu0',
+                        print_results = False):
+        '''
+        Calculates mass and mass error from fit files in form of FitToDict objects passed to method
+            - file_isotope, file_ref1, file_ref2: path to fit files to be used
+            - centroid: time-of-flight centroid to be used to calculate mass ['mu0', 'numerical_mean']
+        '''
+        #
+        self.file_isotope = file_isotope
+        self.file_ref1 = file_ref1
+        self.file_ref2 = file_ref2
+        self.centroid = centroid
+        #
+        self.isotope_fit = FitToDict(file_isotope)
+        self.isotope_gs_t = float(self.isotope_fit.get_val(centroid, 'value'))
+        self.isotope_gs_t_err = float(self.isotope_fit.get_val('mu0', 'error'))
+        #
+        self.ref1_fit = FitToDict(file_ref1)
+        self.ref1_t = float(self.ref1_fit.get_val(centroid, 'value'))
+        self.ref1_t_err = float(self.ref1_fit.get_val('mu0', 'error'))
+        #
+        self.ref2_fit = FitToDict(file_ref2)
+        self.ref2_t = float(self.ref2_fit.get_val(centroid, 'value'))
+        self.ref2_t_err = float(self.ref2_fit.get_val('mu0', 'error'))
+        #
+        self.C_tof = self.calc_C_ToF(self.isotope_gs_t, self.ref1_t, self.ref2_t)
+        self.C_tof_err = self.calc_C_ToF_err(t=self.isotope_gs_t, t_err=self.isotope_gs_t_err,
+                                                       t1=self.ref1_t, t1_err=self.ref1_t_err,
+                                                       t2=self.ref2_t, t2_err=self.ref2_t_err)
+        #
+        self.m_isotope = self.calc_sqrt_m(self.C_tof, self.m_ref1, self.m_ref2)**2
+        self.m_isotope_err = self.calc_m_err(self.C_tof, self.C_tof_err, 
+                                               self.m_ref1, self.m_ref1_err/self.u ,
+                                               self.m_ref2, self.m_ref2_err/self.u)
+
+        self.me_isotope = (self.m_isotope-self.A) * self.u # [keV]
+        self.me_isotope_err = self.m_isotope_err * self.u # [keV]
+
+        # 
+        if print_results:
+            print(f"Result for {self.isotope}:\n\
+                - Mass Excess ISOLTRAP: {self.me_isotope:.1f}({self.me_isotope_err:.1f})keV\n\
+                - Mass Excess {self.ame_version}: {(self.m_isotope_AME-self.A)*self.u:.1f}({self.m_isotope_AME_err:.1f})keV\n\
+                - Mass Difference ISOLTRAP-{self.ame_version}: {abs(self.me_isotope)-abs((self.m_isotope_AME-self.A)*self.u):.1f}keV"
+                )
+    
+    def store_result(self, results_file, overwrite = False, tags=""):
+        '''
+        Appends results from calc_mass in a results file. Creates new file if file does not exist 
+        Parameters:
+            - results_file: .csv file to store results in
+            - overwrite: checks if entry with isotope, n_revs, and tag exists, and overwrites that entry
+            - tags: custom string to add to entry in results_file
+        '''
+        self.tags = tags
+        # Create row to append
+        d = {
+            'A' : [self.A],
+            'isotope': [self.isotope],
+            'n_revs': [self.n_revs],
+            'tags': [self.tags],
+            'ref1': [self.ref1],
+            'ref2': [self.ref2],
+            'm_isotope': [self.m_isotope],
+            'm_isotope_err': [self.m_isotope_err],
+            'me_isotope': [self.me_isotope],
+            'me_isotope_err': [self.me_isotope_err],
+            'C_tof': [self.C_tof],
+            'C_tof_err': [self.C_tof_err],
+            'm_ref1': [self.m_ref1],
+            'm_ref1_err': [self.m_ref1_err],
+            'm_ref2': [self.m_ref2],
+            'm_ref2_err': [self.m_ref2_err],
+            'm_isotope_AME': [self.m_isotope_AME],
+            'm_isotope_AME_err': [self.m_isotope_AME_err],
+            'file_isotope': [self.file_isotope],
+            'file_ref1': [self.file_ref1],
+            'file_ref2': [self.file_ref2],
+        }
+        # Load file if exists or create new file
+        if not os.path.isfile(results_file):
+            print(f"'{results_file}' does not exist, will be created...")
+            df = pd.DataFrame.from_dict(data=d)
+        else:
+            df = pd.read_csv(results_file)
+            # Check if entry in file exists
+            line_exists = False
+            idx_list = df.index[(df["isotope"]==self.isotope) & (df["n_revs"]==self.n_revs) & (df["tags"]==self.tags)].tolist()
+            if len(idx_list) != 0:
+                line_exists = True
+            #
+            if line_exists and not overwrite:
+                print(f"Entry with tags '{self.tags}' and isotope '{self.isotope}' already exists. To overwrite, set overwrite flag.")
+                return
+            elif line_exists and overwrite:
+                print(f"Entry with tags '{self.tags}' and isotope '{self.isotope}' already exists. Will be overwritten.")
+                for idx in idx_list:
+                    for key in d:
+                        df.loc[idx,key] = d[key]
+            else:
+                print(f"Appending to '{results_file}'...")
+                df2 = pd.DataFrame.from_dict(data=d) 
+                df = df.append(df2, ignore_index=True)
+        #
+        df.to_csv(results_file, index=False)
+
+
 
 class Peaks:
     """ 
