@@ -27,6 +27,8 @@ import time
 import sys
 import re
 
+from process import ProcessorBase
+
 def custom_colors():
     # Color definition from coolors.co
     colors = {
@@ -564,8 +566,6 @@ class MRToFIsotope(MRToFUtils):
         #
         df.to_csv(results_file, index=False)
 
-
-
 class Peaks:
     """ 
     Wrapper class for finding peaks in an MR-ToF MS spectrum
@@ -753,46 +753,85 @@ class Peaks:
         #
         plt.show()
         
-class softCool(Peaks):
+class softCool(Peaks, ProcessorBase):
     """
     Class for performing software cooling on 2D MR-ToF MS Data
         df_file: dataframe containing the converted .lst content 
         Inherits functionality from the peak finder 
     """
-    def __init__(self, df_file, peaks = False):
+    def __init__(self, file_list):
         """
-        Initialize by finding peaks in the ToF
+        Class for performing software cooling on 2D MR-ToF MS Data
+        Parameters:
+            file_list: list of .csv-files with dataframe containing the converted .lst content 
+        Inherits functionality from the peak finder 
         """ 
-        self.file = df_file
-        self.coolfile = df_file.copy(deep=True) # copy for storing the cooled spectrum
-        if peaks == False:
-            self.peaks=Peaks(self.file)
-            self.peaks.find_peaks(bins=200,
-                            peak_threshold=2,
-                            peak_min_distance=5,
-                            peak_min_height=100,
-                            peak_width_inbins=(0.5, 100),
-                            peak_prominence=1,
-                            peak_wlen=50)
-        else:
-            self.peaks = peaks
-        self.selected_peak = -1
+        ProcessorBase.__init__(self)
+        # Inherits
+            # self.files = []
+            # self.data = {}
+            # self.pars = {}
+            # self.df_dict = {}
+            # self.step = 0
+        self.files = file_list
+        # Read data
+        for f in self.files:
+            self.df_dict[f] = pd.read_csv(f)
+        #    
         self.corr_factors = []
         self.chunk_size = 10
         self.post_cool = False
-        
-    def select_peak(self, peak_nb):
+        self.tof = 0
+        self.tof_cut_left = 0
+        self.tof_cut_right = 0
+        self.weighted_average_tof = 0
+
+    def __prepare_files(self, tof, tof_cut_left=300, tof_cut_right=300, initial_align = True):
         """
         
         """
-        self.selected_peak = peak_nb
-    
+        #
+        if initial_align:
+            self.__initial_align(tof, tof_cut_left, tof_cut_right)
+            # 
+        # Sum all files
+        self.file = self.add_all(to_csv=False)
+        #
+        self.coolfile = self.file.copy(deep=True) # copy for storing the cooled spectrum
+        
+    def __initial_align(self, tof, tof_cut_left=300, tof_cut_right=300):
+        """
+        
+        Parameters:
+            - file_list: array of files to be aligned with respect to each other
+        """
+        #
+        self.tof = tof
+        self.tof_cut_left = tof_cut_left
+        self.tof_cut_right = tof_cut_right
+        weights = []
+        averages = []
+        weighted_average_tof = 0
+        for f in self.df_dict:
+            tof_cut = self.df_dict[f][(self.df_dict[f].tof > self.tof-self.tof_cut_left) & (self.df_dict[f].tof > self.tof-self.tof_cut_right)]
+            averages.append(np.mean(tof_cut.tof))
+            weights.append(len(tof_cut))
+        #
+        for i in np.arange(len(weights)):
+            weighted_average_tof += averages[i] * weights[i]/np.sum(weights)
+        #
+        i = 0
+        for f in self.df_dict:
+            self.df_dict[f].tof += weighted_average_tof - averages[i] 
+            # print(f"Applied initial ToF correction: {weighted_average_tof - averages[i]} to file {f}.")
+            i += 1
+            
     def calc_corr_factors(self, df, tof_cut, chunk_size=10, method="mean"):
         """
         Function for calculating correction factors
         """
         df_cut = df[(df.tof > tof_cut[0]) & (df.tof < tof_cut[1])]
-        self.chunk_size = chunk_size
+        self.chunk_size = int(chunk_size)
         #
         if method=="mean":
             self.corr_factors = [
@@ -828,18 +867,21 @@ class softCool(Peaks):
                     ]
             ]
 
-    def cool(self, select_peak = 0, method="mean", tof_cut_left=300, tof_cut_right=300, chunk_size=10, 
-             post_cool = False, to_csv = False):
+    def cool(self, tof, tof_cut_left=300, tof_cut_right=300, method="mean", chunk_size=10, 
+             post_cool = False, to_csv = False, initial_align = True):
         """
         Routine for performing the cooling
         Parameters:
-            - select_peak: number of peak to center on for calculating correction factor
+            - tof: time-of-flight to calculate the correcetion factors around
+            - tof_cut_left: left tof cut -> tof-tof_cut_left
+            - tof_cut_right: right tof cut -> tof+tof_cut_right
             - method: 'mean', 'median', 'average'; to calculate correction value for chunk
-            - tof_cut_left: left tof cut
-            - tof_cut_right: right tof cut
             - post_cool: set true for 2nd and more cooling interations
+            - initial_align: whether to initially align all files based on a global mean
             - to_csv: if file name givem, saved as csv
         """
+        # Prepare files for cooling
+        self.__prepare_files(tof, tof_cut_left=tof_cut_left, tof_cut_right=tof_cut_right, initial_align=initial_align)
         # df to be cooled
         self.post_cool = post_cool
         if not self.post_cool:
@@ -848,11 +890,10 @@ class softCool(Peaks):
             df_to_cool = self.coolfile
         #
         self.chunk_size = chunk_size
-        self.selected_peak = select_peak
-        tof_cut = [self.peaks.pos[self.selected_peak]-tof_cut_left, self.peaks.pos[self.selected_peak]+tof_cut_right]
+        tof_cut = [tof-tof_cut_left, tof+tof_cut_right]
         self.calc_corr_factors(df_to_cool, tof_cut, self.chunk_size)
         # print(f"Length correction factors: {len(self.corr_factors)}")
-        # print(f"Length chunk sizes: {len(range(0,df_to_cool.sweep.iloc[-1], self.chunk_size))}")
+        # print(f"Length chunk sizes: {len(range(0,int(df_to_cool.sweep.iloc[-1]), int(self.chunk_size)))}")
         #
         cooled_tofs = [
             [
@@ -872,6 +913,7 @@ class softCool(Peaks):
         # print(self.coolfile)
         # print(self.coolfile.sweep.tolist())
         # print(f"Length cooled tofs: {[len(tofs) for tofs in cooled_tofs]}, sum: {sum([len(tofs) for tofs in cooled_tofs])}")
+        # print(f"Length uncooled file: {len(self.file)}")
         # Flatten 2d array from previous list-comprehension
         self.coolfile.tof = [
              item 
