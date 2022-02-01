@@ -858,9 +858,28 @@ class hyperEmg(FitMethods):
 		self.n_comps = int(fitfromfile.fit['META-DATA']['n_comps'])
 		#
 		for idx,row in fitfromfile.fit['RESULTS-TABLE'].iterrows():
-   			self.Var_dict[row['var']] = row['value']
+			self.Var_dict[row['var']] = row['value']
 		#
 		return xm, y_val
+
+	def constraints_from_file(self, file, params_to_fix):
+		'''
+		Loads and sets constraints for fit from fit file
+		Parameters:
+			- file: fit file to be loaded
+			- params_to_fix: array of strings of parameters to fix
+		'''
+		#
+		fitfromfile = FitToDict(file)
+		#
+		if not 'FIT-VALUES' in fitfromfile.fit:
+			print(f"Fit file {file} has no fit values that were exported.")
+			return 0
+		#
+		for idx,row in fitfromfile.fit['RESULTS-TABLE'].iterrows():
+			if row['var'] in params_to_fix:
+				self.limits[row['var']] = [row['value'], row['value'], row['value']]
+
 
 	def call_pdf(self, xmin, xmax, dimensions = [1,2], n_comps = 1, bins = 1, limits=False):
 		"""
@@ -887,11 +906,17 @@ class hyperEmg(FitMethods):
 			return 0
 		#
 		self.compose_title_unit(self.hist.GetXaxis().GetTitle())
-		#
+
+		# Initialize limits
 		if not limits:
 			self.init_limits()
+		#  
 		else:
-			self.limits = limits
+			# If limits are passed, save them in dict
+			# Careful! This overwrite the constraints set by constraints_from_file
+			for limit in limits:
+				self.limits[limit] = limits[limit]
+#
 		# Fill variable dictionary:
 		self.RooRealVar_dict = {
 			'x': RooRealVar("x", self.rootitle, self.xmin, self.xmax, self.roounit)
