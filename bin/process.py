@@ -329,7 +329,8 @@ class MPANTMpa(ProcessorBase):
         - data_dict: array of panda dataframes with data
         '''
         self.files = files
-        for i, f in enumerate(self.files):
+        # for i, f in enumerate(self.files):
+        for f in self.files:
             self.read(f)
             # Convert bins to tof in ns
             name = os.path.basename(f).split('.')[0]
