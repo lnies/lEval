@@ -13,6 +13,7 @@ from ROOT import RooRealVar, RooArgSet, RooArgList, RooDataHist
 from ROOT import RooGenericPdf, RooUniform, RooGaussian, RooGaussModel, RooDecay, RooFormulaVar
 from ROOT import RooAddPdf, RooMCStudy
 from ROOT import Math as RootMath 
+import datetime
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -27,23 +28,32 @@ import time
 import sys
 import re
 
-from process import ProcessorBase
+from process import ProcessorBase, MPANTMpa
 
 def custom_colors():
 	# Color definition from coolors.co
 	colors = {
 		# https://coolors.co/d1495b-edae49-abe188-1a6fdf-0c0a3e
 		'Fall_rgb': {'red':'#D1495B', 'orange':'#EDAE49', 'green':'#ABE188','blue':'#1A6FDF','purple':'#0C0A3E'},
-		'Jo-s_favs': {'black': "#000000", 'grey': "#C0C0C0", 'purple': "#C177DA", 'blue': "#00A2FF",
-						'red': "#FF2D55", 'orange': "#FFCC00", 'green': "#61D935", 'lightblue': "#6FF1E9",}
+		'Jo-s_favs': 
+		{				
+						'black': "#000000",
+						'red': "#FF2D55", 
+						'blue': "#00A2FF",
+						'orange': "#FFCC00", 
+						'green': "#61D935", 
+						'grey': "#C0C0C0", 
+						'purple': "#C177DA", 
+						'lightblue': "#6FF1E9",
+		}
 	}
 	return colors
 
 def simple_error_plt(y, y_err, x='', x_labels='', \
-					 label = "ISOLTRAP", x_label='', y_label='', title='', \
+					 label = ["ISOLTRAP"], x_label='', y_label=[''], title='', \
 					 ref_value=None, ref_err=None, ref_legend_label='AME20 Error',
-					 x2="", y2="", y2_err = "", label2="", y_label2="",
-					 x3="", y3="", label3="", y_label3=""):
+					 x_share = False,
+					 ):
 	'''
 	Simple scatter plot with y error bars.
 	Parameters:
@@ -56,31 +66,54 @@ def simple_error_plt(y, y_err, x='', x_labels='', \
 	- title: plot title
 	'''
 	colors = custom_colors()
+	colors_keys = list(colors['Jo-s_favs'].keys())
 	mpl.rc('text', usetex=False)
 	fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(4.5*1.5, 4.5))
 	
-	twin1 = ax.twinx()
-	twin2 = ax.twinx()
-	# Offset the right spine of twin2.  The ticks and label have already been
-	# placed on the right by twinx above.
-	twin2.spines["right"].set_position(("axes", 1.1))
-
-	if x_labels != '' and x == '':
+	if len(x_labels) != 0 and len(x) == 0:
 		x = np.arange(0,len(x_labels),1)
 		plt.xticks(x, x_labels, size = 10, rotation = 0)
-	elif x_labels == '' and x != '':
+	elif len(x_labels) == '' and len(x) != '':
 		x = x
 	else:
-		print("Wring x-data passed. Can only pass either x or x_labels")
+		print("Wrong x-data passed. Can only pass either x or x_labels")
 
-	ax.errorbar(x, y, y_err,
-			   fmt='o', color=colors['Jo-s_favs']['black'], zorder = 2, 
-			   label=label, 
-			   fillstyle='full', mfc="black", linewidth=2, ms =10
-	)
+	# Loop through list of arrays passed
+	twins = []
+	for i in np.arange(0,len(y),1):
+		#
+		if i == 0:
+			ax.errorbar(x, y[i], y_err[i],
+					   fmt='o', color=colors['Jo-s_favs'][colors_keys[i]], zorder = 2, 
+					   label=label[i], 
+					   fillstyle='full', mfc="black", linewidth=2, ms =10
+			)
+			ax.set_ylabel(y_label[i], size=18) #fontweight='bold')
+			ax.tick_params(direction='out')
+		else:
+			if x_share:
+				twins.append(ax.twinx())
+				twins[i-1].spines['right'].set_position(("axes", 0.8+i*0.2))
+				color = colors['Jo-s_favs'][colors_keys[i]]
+				twins[i-1].set_ylabel(y_label[i], color=color, fontsize=18)  # we already handled the x-label with ax1
+				twins[i-1].tick_params(axis = 'y', direction='in', color=color)
+				twins[i-1].yaxis.label.set_color(color)
+				ax.spines["right"].set_color(color)
+				twins[i-1].spines["right"].set_color(color)
+			else:
+				twins.append(ax)
+				color = colors['Jo-s_favs'][colors_keys[i]]
 
-	ax.set_ylabel(y_label, size=18) #fontweight='bold')
-	ax.tick_params(direction='out')
+			twins[i-1].errorbar(x, y[i], y_err[i],
+				   fmt='o', color=color, zorder = 2, 
+				   label=label[i], 
+				   fillstyle='full', mfc=color, linewidth=2, ms =10
+			)
+
+			ax.set_zorder(twins[i-1].get_zorder()+1)
+			ax.patch.set_visible(False)
+
+
 	#
 
 	# ax_t = ax.secondary_xaxis('top')
@@ -99,38 +132,6 @@ def simple_error_plt(y, y_err, x='', x_labels='', \
 				label = ref_legend_label)
 
 	# plt.axhspan(ref_value-ref_err, ref_value+ref_err, facecolor='0.5', alpha=0.5)
-	if len(x2) != 0 and len(y2) != 0:
-		color = colors['Jo-s_favs']['blue']
-		twin1.set_ylabel(y_label2, color=color, fontsize=18)  # we already handled the x-label with ax1
-		twin1.tick_params(axis = 'y', direction='in', color=color, **tkw)
-		twin1.errorbar(x2, y2, y2_err,
-			   fmt='o', color=color, zorder = 2, 
-			   label=label, 
-			   fillstyle='full', mfc=color, linewidth=2, ms =10
-		)
-		twin1.yaxis.label.set_color(color)
-		ax.spines["right"].set_color(color)
-		twin1.spines["right"].set_color(color)
-
-		ax.set_zorder(twin1.get_zorder()+1)
-		ax.patch.set_visible(False)
-
-	if len(x3) != 0 and len(y3) != 0:
-		color = colors['Jo-s_favs']['red']
-		twin2.set_ylabel(y_label3, color=color, fontsize=18)  # we already handled the x-label with ax1
-		twin2.tick_params(axis = 'y', direction='in', color=color, **tkw)
-		twin2.plot(x3, y3,
-					   color=color, zorder = 1, 
-					   label=label3, 
-					   linewidth=2,
-			)
-		twin2.yaxis.label.set_color(color)
-		twin2.spines["right"].set_color(color)
-		
-		ax.set_zorder(twin2.get_zorder()+1)
-		twin1.set_zorder(twin2.get_zorder()+1)
-		ax.patch.set_visible(False)
-
 
 	# handles, labels = ax.get_legend_handles_labels()
 	# handles = [h[0] for h in handles] # Remove errorbars from legend
@@ -141,6 +142,27 @@ def simple_error_plt(y, y_err, x='', x_labels='', \
 	plt.title(title, fontsize=20)
 	# plt.savefig("./Mercury_Masses_Comparison.pdf", dpi=300)
 	plt.show()
+
+def get_time_of_measurement(mpa_file, as_datetime = False):
+	"""
+	Fetches time of measurement from data file 
+	Parameters:
+		- mpa_file: path to .mpa file
+		- as_datetime: return time as datetime object, otherwise readable string
+	"""
+	# Get time of measurement
+	raw_file = MPANTMpa()
+	pars, data, df = raw_file.process(files=[mpa_file])
+	file_base = re.split("/|\.", mpa_file)[-2]
+	for key in pars[file_base].keys():
+		if 'report-file' in key:
+			date_array = pars[file_base][key].split("written")[1].split(" ")
+			if as_datetime:
+				time = datetime.datetime.strptime(date_array[1]+" "+date_array[2], '%m/%d/%Y %H:%M:%S')
+				return time
+			else:
+				return(date_array[1]+" "+date_array[2])
+
 class AME():
 	'''
 	Base handling AME related stuff
@@ -506,34 +528,59 @@ class MRToFIsotope(MRToFUtils):
 		self.m_isotope_AME = self.get_value(isotope)
 		self.m_isotope_AME_err = self.get_value(isotope,error=True)        
 
-	def calc_mass(self, file_isotope, file_ref1, file_ref2,
+	def calc_mass(self, file_isotope='', file_ref1='', file_ref2='',
+						t_isotope='', t_ref1='', t_ref2='',
+						t_isotope_err='', t_ref1_err='', t_ref2_err='',
 						centroid = 'mu0',
 						tweak_tofs = [0,0,0],
 						print_results = False):
 		'''
-		Calculates mass and mass error from fit files in form of FitToDict objects passed to method
+		Calculates mass and mass error from either fit files in form of FitToDict objects passed to method
+		or in form of time-of-flights
 			- file_isotope, file_ref1, file_ref2: path to fit files to be used
+			- t_isotope, t_ref1, t_ref2: time-of-flights to be used
 			- centroid: time-of-flight centroid to be used to calculate mass ['mu0', 'numerical_mean']
 			- tweak_tofs: array [tof_isotope, tof_ref1, tof_ref2] that add tof to the extracted values from the fit files to tweak the mass and see influence of tof drifts
 			- print_results: prints short formatted results of calculation
 		'''
 		#
-		self.file_isotope = file_isotope
-		self.file_ref1 = file_ref1
-		self.file_ref2 = file_ref2
+		if file_isotope != '' and t_isotope == '':
+			self.file_isotope = file_isotope
+			self.isotope_fit = FitToDict(file_isotope)
+			self.isotope_gs_t = float(self.isotope_fit.get_val(centroid, 'value')) + tweak_tofs[0]
+			self.isotope_gs_t_err = float(self.isotope_fit.get_val('mu0', 'error'))
+		elif file_isotope == '' and t_isotope != '' and t_isotope_err != '':
+			self.isotope_gs_t = t_isotope + tweak_tofs[0]
+			self.isotope_gs_t_err = t_isotope_err
+		else:
+			print(f"Error input isotope")
+			return
+		#
+		if file_ref1 != '' and t_ref1 == '':
+			self.file_ref1 = file_ref1
+			self.ref1_fit = FitToDict(file_ref1)
+			self.ref1_t = float(self.ref1_fit.get_val(centroid, 'value')) + tweak_tofs[1]
+			self.ref1_t_err = float(self.ref1_fit.get_val('mu0', 'error'))
+		elif file_ref1 == '' and t_ref1 != '' and t_ref1_err != '':
+			self.ref1_t = t_ref1 + tweak_tofs[1]
+			self.ref1_t_err = t_ref1_err
+		else:
+			print(f"Error input ref1")
+			return
+		#
+		if file_ref1 != '' and t_ref1 == '':
+			self.file_ref2 = file_ref2
+			self.ref2_fit = FitToDict(file_ref2)
+			self.ref2_t = float(self.ref2_fit.get_val(centroid, 'value')) + tweak_tofs[2]
+			self.ref2_t_err = float(self.ref2_fit.get_val('mu0', 'error'))
+		elif file_ref2 == '' and t_ref2 != '' and t_ref2_err != '':
+			self.ref2_t = t_ref2 + tweak_tofs[2]
+			self.ref2_t_err = t_ref2_err
+		else:
+			print(f"Error input ref2")
+			return
+		#
 		self.centroid = centroid
-		#
-		self.isotope_fit = FitToDict(file_isotope)
-		self.isotope_gs_t = float(self.isotope_fit.get_val(centroid, 'value')) + tweak_tofs[0]
-		self.isotope_gs_t_err = float(self.isotope_fit.get_val('mu0', 'error'))
-		#
-		self.ref1_fit = FitToDict(file_ref1)
-		self.ref1_t = float(self.ref1_fit.get_val(centroid, 'value')) + tweak_tofs[1]
-		self.ref1_t_err = float(self.ref1_fit.get_val('mu0', 'error'))
-		#
-		self.ref2_fit = FitToDict(file_ref2)
-		self.ref2_t = float(self.ref2_fit.get_val(centroid, 'value')) + + tweak_tofs[2]
-		self.ref2_t_err = float(self.ref2_fit.get_val('mu0', 'error'))
 		#
 		self.C_tof = self.calc_C_ToF(self.isotope_gs_t, self.ref1_t, self.ref2_t)
 		self.C_tof_err = self.calc_C_ToF_err(t=self.isotope_gs_t, t_err=self.isotope_gs_t_err,
