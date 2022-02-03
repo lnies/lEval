@@ -30,6 +30,8 @@ import re
 
 from process import ProcessorBase, MPANTMpa
 
+FILE_LOCATION = os.path.dirname(__file__)+"/"
+
 def custom_colors():
 	# Color definition from coolors.co
 	colors = {
@@ -163,39 +165,68 @@ def get_time_of_measurement(mpa_file, as_datetime = False):
 			else:
 				return(date_array[1]+" "+date_array[2])
 
-class AME():
+class NUBASE():
 	'''
-	Base handling AME related stuff
+	Base handling NUBASE related stuff
 	Params:
 		path_to_ame: path to ame mass file
 		ame_version: version of AME. Defaults to 2020
+		nubase_version: version of NUBASE. Defaults to 2020
 	'''
-	def __init__(self, path_to_ame='', ame_version = 'ame20'):
+	def __init__(self, path_to_ame=FILE_LOCATION+'mass20.txt', path_to_nubase = FILE_LOCATION+'nubase_3.mas20.txt', ame_version = 'ame20', nubase_version = 'nubase20'):
 		self.path_to_ame = path_to_ame
 		self.ame_version = ame_version
-		#
-		if path_to_ame=='':
+		self.path_to_nubase = path_to_nubase
+		self.nubase_version = nubase_version
+		# Check for databases (.txt files)
+		if not os.path.exists(path_to_ame):
+			print(f"(error in NUBASE.__init__): Could not find AME file under {self.path_to_ame}.")
 			self.ame = {}
-			int(f"(error in AME.__init__): No AME passed. Not initialized.")
-		# Init masses dataframe
-		if self.ame_version == 'ame20':
-			self.ame = pd.read_fwf(self.path_to_ame, #usecols=(2,3,4,6,9,10,11,12,18,21,20),
-									  names=['1', 'N-Z', 'N', 'Z', 'A', 'Unnamed: 5', 'element', 'O', 'Unnamed: 8',
-											   'mass_excess', 'mass_excess_err', 'ebinding', 'nan1', 'ebinding_err', 'nan2', 'ET',
-											   'beta_decay_energy', 'beta_decay_energy_err', 'nan18', 'atomic_mass_raw', 'nan20',
-											   'atomic_mass_comma', 'atomic_mass_err'],
-									  widths=(1,3,5,5,5,1,3,4,1,14,12,13,1,10,1,2,13,11,1,3,1,13,12),
-									  header=28,
-									  index_col=False)
-		else:
-			print(f"(error in AME.__init__): Wrong version parsed. Only 'ame20' available.")
+		if not os.path.exists(path_to_nubase):
+			print(f"(error in NUBASE.__init__): Could not find NUBASE file under {self.path_to_nubase}.")
+			self.nubase = {}			
+			
+		# Init AME dataframe
+		try:
+			if self.ame_version == 'ame20':
+				self.ame = pd.read_fwf(self.path_to_ame, #usecols=(2,3,4,6,9,10,11,12,18,21,20),
+										  names=['1', 'N-Z', 'N', 'Z', 'A', 'Unnamed: 5', 'element', 'O', 'Unnamed: 8',
+												   'mass_excess', 'mass_excess_err', 'ebinding', 'nan1', 'ebinding_err', 'nan2', 'ET',
+												   'beta_decay_energy', 'beta_decay_energy_err', 'nan18', 'atomic_mass_raw', 'nan20',
+												   'atomic_mass_comma', 'atomic_mass_err'],
+										  widths=(1,3,5,5,5,1,3,4,1,14,12,13,1,10,1,2,13,11,1,3,1,13,12),
+										  header=28,
+										  index_col=False)
+			else:
+				print(f"(error in NUBASE.__init__): Wrong version parsed. Only 'ame20' available.")
+		except(Exception) as err: 
+			print(f"(error in NUBASE.__init__): Could not load AME: {err}.")
 		
-	def get_value(self, isotope="1H", value="mass", error=False):
+		# Init NUBASE dataframe
+		try:
+			if self.nubase_version == 'nubase20':
+				self.nubase = pd.read_fwf(path_to_nubase, #usecols=(2,3,4,6,9,10,11,12,18,21,20),
+									  names=[
+										  "A", "ZZZ", "element", "s", "mass_excess", "mass_excess_err", "excitation_energy", "excitation_energy_err",
+										  "origin", "isom_unc", "isom_inv", "half_life", "half_life_unit", "half_life_err", "Jpi",
+										  "ensdf_year", "discovery", "branch_ratio"
+									  ],
+									  widths=(4,7,5,1,13,11,12,11,2,1,1,9,3,7,14,12,5,90),
+									  header=25,
+									  index_col=False)			
+				# Remove mass number from element column
+				self.nubase["element"] = [re.split("(\\d+)",row["element"])[2] for idx, row in self.nubase.iterrows()]
+			else:
+				print(f"(error in NUBASE.__init__): Wrong version parsed. Only 'ame20' available.")
+		except(Exception) as err: 
+			print(f"(error in NUBASE.__init__): Could not load NUBASE: {err}.")
+		
+	def get_value(self, isotope="1H", value="mass", error=False, isomere=''):
 		'''
 		Returns value for given isotope
 		Params:
 			isotope: isotope
-			value: value to fetch
+			value: value to fetch ("mass", "mass_excess", "excitation_energy")
 			error: returns error on value
 		'''
 		# Split isotope string into mass number and element string
@@ -244,8 +275,39 @@ class AME():
 						print(f"(TypeError in get_value for A={A}, X={X}): {err}")
 						return
 					fetched_value += data**2
+			#
+			elif value == 'excitation_energy' and (isomere == 'n' or isomere == 'm'):
+				# Get dataframe index of isotope 
+				idx = -1
+				idx_list = self.nubase.index[(self.nubase["A"]==A) & (self.nubase["element"]==X) & (self.nubase["s"]==isomere)].tolist()
+				if len(idx_list) < 1:
+					print(f"(Error in get_value for A={A}, X={X}): Can't find isotope in NUBASE with given values.")
+					return
+				elif len(idx_list) > 1:
+					print(f"(Error in get_value for A={A}, X={X}): Found multiple isotopes in NUBASE with given values.")
+					return
+				else:
+					idx = idx_list[0]
+				#
+				if not error:
+					# First convert the feteched dataframe entries to str, remove the hashtag, convert to float 
+					if value == 'excitation_energy':
+						try:
+							fetched_value = float(str(self.nubase.iloc[idx]['excitation_energy']).strip('#'))
+						except(Exception, TypeError) as err:
+							print(f"(TypeError in get_value for A={A}, X={X}): {err}")
+							return
+				else:
+					try:
+						if value == 'excitation_energy': 
+							data = float(str(self.ame.iloc[idx]['excitation_energy_err']).strip('#'))
+					except(Exception, TypeError) as err:
+						print(f"(TypeError in get_value for A={A}, X={X}): {err}")
+						return
+					fetched_value += data**2
+			#
 			else:
-				print(f"(Error in get_value: value={value} unknown.")
+				print(f"(Error in get_value: value='{value}' and/or isomere='{isomere}' unknown.")
 		#
 		if not error:
 			return fetched_value
@@ -366,7 +428,7 @@ class FitToDict:
 			print(f"Key {key} does not exist in the fit dictionary.")
 			return
 
-class MRToFUtils(AME):
+class MRToFUtils(NUBASE):
 	'''
 	Utility class for performing mass extraction from MR-ToF MS data using the C_{ToF} approach.
 	Params:
@@ -375,9 +437,9 @@ class MRToFUtils(AME):
 	Inheritance:
 		AME: Inherits functionalities from AME 
 	'''
-	def __init__(self, path_to_ame='', ame_version = 'ame20'):
+	def __init__(self, path_to_ame=FILE_LOCATION+'mass20.txt', path_to_nubase = FILE_LOCATION+'nubase_3.mas20.txt', ame_version = 'ame20', nubase_version = 'nubase20'):
 		# Init base class
-		AME.__init__(self, path_to_ame = path_to_ame, ame_version = ame_version)
+		NUBASE.__init__(self, path_to_ame = path_to_ame, ame_version = ame_version, path_to_nubase=path_to_nubase, nubase_version=nubase_version)
 		#
 		#   Store init parameters
 		#
@@ -510,9 +572,11 @@ class MRToFIsotope(MRToFUtils):
 		AME: Inherits functionalities from AME 
 		MRToFUtils: Inherits functionalities for calculating masses 
 	'''
-	def __init__(self, isotope, ref1, ref2, n_revs, path_to_ame, ame_version = 'ame20'):
+	def __init__(self, isotope, ref1, ref2, n_revs, path_to_ame=FILE_LOCATION+'mass20.txt', 
+				 path_to_nubase = FILE_LOCATION+'nubase_3.mas20.txt', ame_version = 'ame20', nubase_version = 'nubase20'):
 		# Init base class
-		MRToFUtils.__init__(self, path_to_ame = path_to_ame, ame_version = ame_version)
+		MRToFUtils.__init__(self, path_to_ame = path_to_ame, ame_version = ame_version, path_to_nubase=path_to_nubase,
+								  nubase_version=nubase_version)
 		# 
 		self.isotope = isotope
 		self.A = int(re.split("(\\d+)",isotope)[1])
@@ -544,8 +608,8 @@ class MRToFIsotope(MRToFUtils):
 			- print_results: prints short formatted results of calculation
 		'''
 		#
+		self.file_isotope = file_isotope
 		if file_isotope != '' and t_isotope == '':
-			self.file_isotope = file_isotope
 			self.isotope_fit = FitToDict(file_isotope)
 			self.isotope_gs_t = float(self.isotope_fit.get_val(centroid, 'value')) + tweak_tofs[0]
 			self.isotope_gs_t_err = float(self.isotope_fit.get_val('mu0', 'error'))
@@ -556,8 +620,8 @@ class MRToFIsotope(MRToFUtils):
 			print(f"Error input isotope")
 			return
 		#
+		self.file_ref1 = file_ref1
 		if file_ref1 != '' and t_ref1 == '':
-			self.file_ref1 = file_ref1
 			self.ref1_fit = FitToDict(file_ref1)
 			self.ref1_t = float(self.ref1_fit.get_val(centroid, 'value')) + tweak_tofs[1]
 			self.ref1_t_err = float(self.ref1_fit.get_val('mu0', 'error'))
@@ -568,8 +632,8 @@ class MRToFIsotope(MRToFUtils):
 			print(f"Error input ref1")
 			return
 		#
-		if file_ref1 != '' and t_ref1 == '':
-			self.file_ref2 = file_ref2
+		self.file_ref2 = file_ref2
+		if file_ref2 != '' and t_ref2 == '':
 			self.ref2_fit = FitToDict(file_ref2)
 			self.ref2_t = float(self.ref2_fit.get_val(centroid, 'value')) + tweak_tofs[2]
 			self.ref2_t_err = float(self.ref2_fit.get_val('mu0', 'error'))
@@ -882,6 +946,7 @@ class softCool(Peaks, ProcessorBase):
 		self.tof_cut_left = 0
 		self.tof_cut_right = 0
 		self.weighted_average_tof = 0
+		self.verbose = 0
 
 	def __prepare_files(self, tof, tof_cut_left=300, tof_cut_right=300, initial_align = True):
 		"""
@@ -920,7 +985,8 @@ class softCool(Peaks, ProcessorBase):
 		i = 0
 		for f in self.df_dict:
 			self.df_dict[f].tof += weighted_average_tof - averages[i] 
-			# print(f"Applied initial ToF correction: {weighted_average_tof - averages[i]} to file {f}.")
+			if self.verbose > 0:
+				print(f"Applied initial ToF correction: {weighted_average_tof - averages[i]} to file {f}.")
 			i += 1
 			
 	def calc_corr_factors(self, df, tof_cut, chunk_size=10, method="mean"):
@@ -965,7 +1031,9 @@ class softCool(Peaks, ProcessorBase):
 			]
 
 	def cool(self, tof, tof_cut_left=300, tof_cut_right=300, method="mean", chunk_size=10, 
-			 post_cool = False, to_csv = False, initial_align = True):
+			 post_cool = False, to_csv = False, initial_align = False, use_global_mean = False,
+			 align_with = 0,
+			 verbose = 0):
 		"""
 		Routine for performing the cooling
 		Parameters:
@@ -977,6 +1045,8 @@ class softCool(Peaks, ProcessorBase):
 			- initial_align: whether to initially align all files based on a global mean
 			- to_csv: if file name givem, saved as csv
 		"""
+		#
+		self.verbose = verbose
 		# Prepare files for cooling
 		self.__prepare_files(tof, tof_cut_left=tof_cut_left, tof_cut_right=tof_cut_right, initial_align=initial_align)
 		# df to be cooled
@@ -991,11 +1061,17 @@ class softCool(Peaks, ProcessorBase):
 		self.calc_corr_factors(df_to_cool, tof_cut, self.chunk_size)
 		# print(f"Length correction factors: {len(self.corr_factors)}")
 		# print(f"Length chunk sizes: {len(range(0,int(df_to_cool.sweep.iloc[-1]), int(self.chunk_size)))}")
+		
+		# Calculate global average
+		if use_global_mean:
+			mean_tof = np.mean(df_to_cool[(df_to_cool.tof > tof_cut[0]) & (df_to_cool.tof < tof_cut[1])].tof)
+		else:
+			mean_tof = self.corr_factors[align_with]
 		#
 		cooled_tofs = [
 			[
 				# print(cooled.corr_factors[j[1]], j[1])
-				row - self.corr_factors[j[1]] + self.corr_factors[0]
+				row - self.corr_factors[j[1]] + mean_tof
 				for row 
 				in j[0]
 			]
