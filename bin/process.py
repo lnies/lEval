@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """
 Created on Mon 11 January 2022
-Modified by Lukas.Nies@cern.ch on 21/10/2021
+Modified by Lukas.Nies@cern.ch on 04/02/2021
 @author: Lukas Nies
 @contact: Lukas.Nies@cern.ch
-@license: /
+@license: MIT
 """
 
 import mmap

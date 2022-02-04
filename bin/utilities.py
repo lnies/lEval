@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """
 Created on Mon 11 January 2022
-Modified by Lukas.Nies@cern.ch on 21/10/2021
+Modified by Lukas.Nies@cern.ch on 04/02/2021
 @author: Lukas Nies
 @contact: Lukas.Nies@cern.ch
-@license: /
+@license: MIT
 """
 
 import ROOT
@@ -221,7 +221,7 @@ class NUBASE():
 		except(Exception) as err: 
 			print(f"(error in NUBASE.__init__): Could not load NUBASE: {err}.")
 		
-	def get_value(self, isotope="1H", value="mass", error=False, isomere=''):
+	def get_value(self, isotope="1H", value="mass", error=False, state=''):
 		'''
 		Returns value for given isotope
 		Params:
@@ -242,10 +242,10 @@ class NUBASE():
 				idx_list = self.ame.index[(self.ame["A"]==A) & (self.ame["element"]==X)].tolist()
 				if len(idx_list) < 1:
 					print(f"(Error in get_value for A={A}, X={X}): Can't find isotope with given values.")
-					return
+					return -1
 				elif len(idx_list) > 1:
 					print(f"(Error in get_value for A={A}, X={X}): Found multiple isotopes with given values.")
-					return
+					return -1
 				else:
 					idx = idx_list[0]
 				#
@@ -257,15 +257,16 @@ class NUBASE():
 							comma = float(str(self.ame.iloc[idx]['atomic_mass_comma']).strip('#'))/1e6
 						except(Exception, TypeError) as err:
 							print(f"(TypeError in get_value for A={A}, X={X}): {err}")
-							return
+							return -1
 						fetched_value += raw+comma
 					elif value == 'mass_excess':
 						try:
 							fetched_value = float(str(self.ame.iloc[idx]['mass_excess']).strip('#'))
 						except(Exception, TypeError) as err:
 							print(f"(TypeError in get_value for A={A}, X={X}): {err}")
-							return
+							return -1
 				else:
+					data = 0
 					try:
 						if value == 'mass': 
 							data = float(str(self.ame.iloc[idx]['atomic_mass_err']).strip('#'))
@@ -273,19 +274,19 @@ class NUBASE():
 							data = float(str(self.ame.iloc[idx]['mass_excess_err']).strip('#'))
 					except(Exception, TypeError) as err:
 						print(f"(TypeError in get_value for A={A}, X={X}): {err}")
-						return
+						return -1
 					fetched_value += data**2
 			#
-			elif value == 'excitation_energy' and (isomere == 'n' or isomere == 'm'):
+			elif value == 'excitation_energy' and (state == 'n' or state == 'm'):
 				# Get dataframe index of isotope 
 				idx = -1
-				idx_list = self.nubase.index[(self.nubase["A"]==A) & (self.nubase["element"]==X) & (self.nubase["s"]==isomere)].tolist()
+				idx_list = self.nubase.index[(self.nubase["A"]==A) & (self.nubase["element"]==X) & (self.nubase["s"]==state)].tolist()
 				if len(idx_list) < 1:
 					print(f"(Error in get_value for A={A}, X={X}): Can't find isotope in NUBASE with given values.")
-					return
+					return -1
 				elif len(idx_list) > 1:
 					print(f"(Error in get_value for A={A}, X={X}): Found multiple isotopes in NUBASE with given values.")
-					return
+					return -1
 				else:
 					idx = idx_list[0]
 				#
@@ -296,18 +297,20 @@ class NUBASE():
 							fetched_value = float(str(self.nubase.iloc[idx]['excitation_energy']).strip('#'))
 						except(Exception, TypeError) as err:
 							print(f"(TypeError in get_value for A={A}, X={X}): {err}")
-							return
+							return -1
 				else:
+					data = 0
 					try:
-						if value == 'excitation_energy': 
-							data = float(str(self.ame.iloc[idx]['excitation_energy_err']).strip('#'))
+						if value == 'excitation_energy_err': 
+							data = float(str(self.nubase.iloc[idx]['excitation_energy_err']).strip('#'))
 					except(Exception, TypeError) as err:
 						print(f"(TypeError in get_value for A={A}, X={X}): {err}")
-						return
+						return -1
 					fetched_value += data**2
 			#
 			else:
-				print(f"(Error in get_value: value='{value}' and/or isomere='{isomere}' unknown.")
+				print(f"(Error in get_value: value='{value}' and/or state='{state}' unknown.")
+				return -1
 		#
 		if not error:
 			return fetched_value
@@ -572,7 +575,7 @@ class MRToFIsotope(MRToFUtils):
 		AME: Inherits functionalities from AME 
 		MRToFUtils: Inherits functionalities for calculating masses 
 	'''
-	def __init__(self, isotope, ref1, ref2, n_revs, path_to_ame=FILE_LOCATION+'mass20.txt', 
+	def __init__(self, isotope, ref1, ref2, n_revs, state = 'gs', path_to_ame=FILE_LOCATION+'mass20.txt', 
 				 path_to_nubase = FILE_LOCATION+'nubase_3.mas20.txt', ame_version = 'ame20', nubase_version = 'nubase20'):
 		# Init base class
 		MRToFUtils.__init__(self, path_to_ame = path_to_ame, ame_version = ame_version, path_to_nubase=path_to_nubase,
@@ -583,6 +586,7 @@ class MRToFIsotope(MRToFUtils):
 		self.ref1 = ref1
 		self.ref2 = ref2 
 		self.n_revs = n_revs
+		self.state = state
 		#
 		self.m_ref1 = self.get_value(self.ref1)
 		self.m_ref1_err = self.get_value(self.ref1,error=True)
@@ -590,35 +594,60 @@ class MRToFIsotope(MRToFUtils):
 		self.m_ref2_err = self.get_value(self.ref2,error=True)
 		#
 		self.m_isotope_AME = self.get_value(isotope)
-		self.m_isotope_AME_err = self.get_value(isotope,error=True)        
+		self.m_isotope_AME_err = self.get_value(isotope,error=True)
+		# if isomere is to be calculated
+		if self.state != 'gs':
+			self.exc_energy_NUBASE = self.get_value(isotope, "excitation_energy", state=self.state) 
+			if self.exc_energy_NUBASE == -1:
+				print(f"(MRToFIsotope.__init__): Can't find isotope '{self.isotope}-{self.state}' in NUBASE.")
+				return -1   
+			self.exc_energy_NUBASE_err = self.get_value(isotope, "excitation_energy", state=state, error=True)
+			#
+			if self.state == 'm':
+				self.isomere_key = 'mu1'
+			elif self.state == 'n':
+				self.isomere_key = 'mu2'
+			else:
+				print(f"(MRToFIsotope.__init__): Unknown isomeric state '{self.state}' (only 'm', 'n').")
+				return -1
+		#
+		self.custom_gs = ''
+		self.custom_gs_err = ''
 
-	def calc_mass(self, file_isotope='', file_ref1='', file_ref2='',
+	def __store_tofs(self, file_isotope='', file_ref1='', file_ref2='',
 						t_isotope='', t_ref1='', t_ref2='',
 						t_isotope_err='', t_ref1_err='', t_ref2_err='',
 						centroid = 'mu0',
-						tweak_tofs = [0,0,0],
-						print_results = False):
-		'''
-		Calculates mass and mass error from either fit files in form of FitToDict objects passed to method
-		or in form of time-of-flights
-			- file_isotope, file_ref1, file_ref2: path to fit files to be used
-			- t_isotope, t_ref1, t_ref2: time-of-flights to be used
-			- centroid: time-of-flight centroid to be used to calculate mass ['mu0', 'numerical_mean']
-			- tweak_tofs: array [tof_isotope, tof_ref1, tof_ref2] that add tof to the extracted values from the fit files to tweak the mass and see influence of tof drifts
-			- print_results: prints short formatted results of calculation
-		'''
+						tweak_tofs = [0,0,0]):
+		"""
+		Stores information passed to calc_mass or calc_exc_energy and loads fit files if passed
+		"""    
+		#
+		self.centroid = centroid
 		#
 		self.file_isotope = file_isotope
+		# Store isotope of interest fit file
 		if file_isotope != '' and t_isotope == '':
 			self.isotope_fit = FitToDict(file_isotope)
 			self.isotope_gs_t = float(self.isotope_fit.get_val(centroid, 'value')) + tweak_tofs[0]
 			self.isotope_gs_t_err = float(self.isotope_fit.get_val('mu0', 'error'))
+			# If isomer is passed, store isomere ToF as well
+			if self.state != 'gs':
+				self.isotope_m_t = float(self.isotope_fit.get_val(self.isomere_key, 'value')) + tweak_tofs[0]
+				self.isotope_m_t_err = float(self.isotope_fit.get_val(self.isomere_key, 'error'))
+		# If raw ToFs and not fit files are passed, store ToFs directly
 		elif file_isotope == '' and t_isotope != '' and t_isotope_err != '':
 			self.isotope_gs_t = t_isotope + tweak_tofs[0]
 			self.isotope_gs_t_err = t_isotope_err
+			# If isomere ToF is passed, set gs to -1 and store isomere ToF instead 
+			if self.state != 'gs':
+				self.isotope_gs_t = -1 
+				self.isotope_gs_t_err = -1 
+				self.isotope_m_t = t_isotope + tweak_tofs[0]
+				self.isotope_m_t_err = t_isotope_err
 		else:
 			print(f"Error input isotope")
-			return
+			return -1
 		#
 		self.file_ref1 = file_ref1
 		if file_ref1 != '' and t_ref1 == '':
@@ -643,8 +672,25 @@ class MRToFIsotope(MRToFUtils):
 		else:
 			print(f"Error input ref2")
 			return
-		#
-		self.centroid = centroid
+
+	def calc_mass(self, file_isotope='', file_ref1='', file_ref2='',
+						t_isotope='', t_ref1='', t_ref2='',
+						t_isotope_err='', t_ref1_err='', t_ref2_err='',
+						centroid = 'mu0',
+						tweak_tofs = [0,0,0],
+						print_results = False):
+		'''
+		Calculates mass and mass error from either fit files in form of FitToDict objects passed to method
+		or in form of time-of-flights
+			- file_isotope, file_ref1, file_ref2: path to fit files to be used
+			- t_isotope, t_ref1, t_ref2: time-of-flights to be used. Overwrites the ToFs fetched from fit files
+			- centroid: time-of-flight centroid to be used to calculate mass ['mu0', 'numerical_mean']
+			- tweak_tofs: array [tof_isotope, tof_ref1, tof_ref2] that add tof to the extracted values from the fit files to tweak the mass and see influence of tof drifts
+			- print_results: prints short formatted results of calculation
+		'''
+		# Store ToFs
+		self.__store_tofs(file_isotope, file_ref1, file_ref2,t_isotope, t_ref1, t_ref2, t_isotope_err, 
+							t_ref1_err, t_ref2_err, centroid, tweak_tofs)
 		#
 		self.C_tof = self.calc_C_ToF(self.isotope_gs_t, self.ref1_t, self.ref2_t)
 		self.C_tof_err = self.calc_C_ToF_err(t=self.isotope_gs_t, t_err=self.isotope_gs_t_err,
@@ -662,9 +708,56 @@ class MRToFIsotope(MRToFUtils):
 		# 
 		if print_results:
 			print(f"Result for {self.isotope}:\n\
-				- Mass Excess ISOLTRAP: {self.me_isotope:.1f}({self.me_isotope_err:.1f})keV\n\
-				- Mass Excess {self.ame_version}: {(self.m_isotope_AME-self.A)*self.u:.1f}({self.m_isotope_AME_err:.1f})keV\n\
-				- Mass Difference ISOLTRAP-{self.ame_version}: {abs(self.me_isotope)-abs((self.m_isotope_AME-self.A)*self.u):.1f}keV"
+	- Mass Excess ISOLTRAP: {self.me_isotope:.1f}({self.me_isotope_err:.1f})keV\n\
+	- Mass Excess {self.ame_version}: {(self.m_isotope_AME-self.A)*self.u:.1f}({self.m_isotope_AME_err:.1f})keV\n\
+	- Mass Difference ISOLTRAP-{self.ame_version}: {abs(self.me_isotope)-abs((self.m_isotope_AME-self.A)*self.u):.1f}keV\n"
+				)
+	
+	def calc_exc_energy(self, file_isotope='', file_ref1='', file_ref2='',
+						t_isotope='', t_ref1='', t_ref2='',
+						t_isotope_err='', t_ref1_err='', t_ref2_err='',
+						centroid = 'mu0',
+						tweak_tofs = [0,0,0],
+						custom_gs = '', custom_gs_err = '',
+						print_results = False):
+		'''
+		Calculates the excitation energy for an isomeric state from either fit files in form of FitToDict objects passed to method
+		or in form of time-of-flights
+			- file_isotope, file_ref1, file_ref2: path to fit files to be used
+			- t_isotope, t_ref1, t_ref2: time-of-flights to be used. Overwrites the ToFs fetched from fit files
+			- centroid: time-of-flight centroid to be used to calculate mass ['mu0', 'numerical_mean']
+			- tweak_tofs: array [tof_isotope, tof_ref1, tof_ref2] that add tof to the extracted values from the fit files to tweak the mass and see influence of tof drifts
+			- custom_gs: use ground state mass passsed in [u] to calculate excitation energy. Defaults to AME value
+			- print_results: prints short formatted results of calculation
+		'''
+		# Store ToFs
+		self.__store_tofs(file_isotope, file_ref1, file_ref2,t_isotope, t_ref1, t_ref2, t_isotope_err, 
+							t_ref1_err, t_ref2_err, centroid, tweak_tofs)
+		#
+		self.C_tof = self.calc_C_ToF(self.isotope_m_t, self.ref1_t, self.ref2_t)
+		self.C_tof_err = self.calc_C_ToF_err(t=self.isotope_m_t, t_err=self.isotope_m_t_err,
+													   t1=self.ref1_t, t1_err=self.ref1_t_err,
+													   t2=self.ref2_t, t2_err=self.ref2_t_err)
+		#
+		self.m_isomere = self.calc_sqrt_m(self.C_tof, self.m_ref1, self.m_ref2)**2
+		self.m_isomere_err = self.calc_m_err(self.C_tof, self.C_tof_err, 
+											   self.m_ref1, self.m_ref1_err/self.u ,
+											   self.m_ref2, self.m_ref2_err/self.u)
+		
+		self.custom_gs = custom_gs
+		self.custom_gs_err = custom_gs_err
+		if self.custom_gs == '' and self.custom_gs_err == '':
+			self.exc_energy = (self.m_isomere-self.m_isotope_AME) * self.u # [keV]
+			self.exc_energy_err = math.sqrt(self.m_isomere_err**2 + self.m_isotope_AME_err**2)
+		else:
+			self.exc_energy = (self.m_isomere-self.custom_gs) * self.u # [keV]
+			self.exc_energy_err = math.sqrt(self.custom_gs_err**2 + self.m_isotope_AME_err**2)
+		# 
+		if print_results:
+			print(f"Result for {self.isotope}-{self.state}:\n\
+	- Excitation energy ISOLTRAP: {self.exc_energy:.1f}({self.exc_energy_err:.1f})keV\n\
+	- Excitation energy NUBASE: {self.exc_energy_NUBASE:.1f}({self.exc_energy_NUBASE_err:.1f})keV\n\
+	- Energy Difference ISOLTRAP-{self.nubase_version}: {abs(self.exc_energy)-abs(self.exc_energy_NUBASE):.1f}keV\n"
 				)
 	
 	def store_result(self, results_file, overwrite = False, tags=""):
@@ -680,14 +773,11 @@ class MRToFIsotope(MRToFUtils):
 		d = {
 			'A' : [self.A],
 			'isotope': [self.isotope],
+			'state': [self.state],
 			'n_revs': [self.n_revs],
 			'tags': [self.tags],
 			'ref1': [self.ref1],
 			'ref2': [self.ref2],
-			'm_isotope': [self.m_isotope],
-			'm_isotope_err': [self.m_isotope_err],
-			'me_isotope': [self.me_isotope],
-			'me_isotope_err': [self.me_isotope_err],
 			'C_tof': [self.C_tof],
 			'C_tof_err': [self.C_tof_err],
 			'm_ref1': [self.m_ref1],
@@ -700,28 +790,56 @@ class MRToFIsotope(MRToFUtils):
 			'file_ref1': [self.file_ref1],
 			'file_ref2': [self.file_ref2],
 		}
+		if self.state == "gs":
+			append = {
+				'm_isotope': [self.m_isotope],
+				'm_isotope_err': [self.m_isotope_err],
+				'me_isotope': [self.me_isotope],
+				'me_isotope_err': [self.me_isotope_err],
+			}
+		elif self.state == "m" or self.state == "n":
+			append = {
+				'm_isomere': [self.m_isomere],
+				'm_isomere_err': [self.m_isomere_err],
+				'exc_energy': [self.exc_energy],
+				'exc_energy_err': [self.exc_energy_err],
+				'exc_energy_NUBASE': [self.exc_energy_NUBASE],
+				'exc_energy_NUBASE_err': [self.exc_energy_NUBASE_err],
+			}
+		#
+		d.update(append)
+		#
+		if self.custom_gs != '' and self.custom_gs_err != '':
+			append = {
+				'custom_gs': [self.custom_gs],
+				'custom_gs_err': [self.custom_gs_err],
+			}
+			d.update(append)
+		#
+
 		# Load file if exists or create new file
 		if not os.path.isfile(results_file):
-			print(f"'{results_file}' does not exist, will be created...")
+			print(f"'{results_file}' does not exist, will be created...\n")
 			df = pd.DataFrame.from_dict(data=d)
 		else:
 			df = pd.read_csv(results_file)
 			# Check if entry in file exists
 			line_exists = False
-			idx_list = df.index[(df["isotope"]==self.isotope) & (df["n_revs"]==self.n_revs) & (df["tags"]==self.tags)].tolist()
+			idx_list = df.index[(df["isotope"]==self.isotope) & (df["n_revs"]==self.n_revs) & \
+								(df["tags"]==self.tags) & (df["state"]==self.state)].tolist()
 			if len(idx_list) != 0:
 				line_exists = True
 			#
 			if line_exists and not overwrite:
-				print(f"Entry with tags '{self.tags}' and isotope '{self.isotope}' already exists. To overwrite, set overwrite flag.")
+				print(f"Entry with tags '{self.tags}' and isotope '{self.isotope}' already exists. To overwrite, set overwrite flag.\n")
 				return
 			elif line_exists and overwrite:
-				print(f"Entry with tags '{self.tags}' and isotope '{self.isotope}' already exists. Will be overwritten.")
+				print(f"Entry with tags '{self.tags}' and isotope '{self.isotope}' already exists. Will be overwritten.\n")
 				for idx in idx_list:
 					for key in d:
 						df.loc[idx,key] = d[key]
 			else:
-				print(f"Appending to '{results_file}'...")
+				print(f"Appending to '{results_file}'...\n")
 				df2 = pd.DataFrame.from_dict(data=d) 
 				df = df.append(df2, ignore_index=True)
 		#

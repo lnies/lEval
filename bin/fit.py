@@ -1,3 +1,12 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon 11 January 2022
+Modified by Lukas.Nies@cern.ch on 04/02/2021
+@author: Lukas Nies
+@contact: Lukas.Nies@cern.ch
+@license: MIT
+"""
+
 import ROOT
 from ROOT import RooFit
 from ROOT import RooRealVar, RooArgSet, RooArgList, RooDataHist
