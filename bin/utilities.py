@@ -1093,13 +1093,20 @@ class softCool(Peaks, ProcessorBase):
 		averages = []
 		weighted_average_tof = 0
 		for f in self.df_dict:
-			tof_cut = self.df_dict[f][(self.df_dict[f].tof > self.tof-self.tof_cut_left) & (self.df_dict[f].tof > self.tof-self.tof_cut_right)]
+			tof_cut = self.df_dict[f][(self.df_dict[f].tof > self.tof-self.tof_cut_left) & (self.df_dict[f].tof < self.tof-self.tof_cut_right)]
 			averages.append(np.mean(tof_cut.tof))
 			weights.append(len(tof_cut))
+			# averages.append(np.mean(self.df_dict[f].tof))
+			# weights.append(len(self.df_dict[f]))
 		#
 		for i in np.arange(len(weights)):
 			weighted_average_tof += averages[i] * weights[i]/np.sum(weights)
 		#
+		if self.verbose > 0:
+			print(f"ToF: {self.tof}, Left: {self.tof_cut_left}, Right: {self.tof_cut_right}\n")
+			print(f"Weighted average ToF: {weighted_average_tof}.")
+			print(f"Averages:\n {averages}.")
+			print(f"Weights:\n {weights}.")
 		i = 0
 		for f in self.df_dict:
 			self.df_dict[f].tof += weighted_average_tof - averages[i] 
