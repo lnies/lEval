@@ -85,7 +85,7 @@ def simple_error_plt(y, y_err, x='', x_labels='', \
 	for i in np.arange(0,len(y),1):
 		#
 		if i == 0:
-			ax.errorbar(x, y[i], y_err[i],
+			ax.errorbar(x[i], y[i], y_err[i],
 					   fmt='o', color=colors['Jo-s_favs'][colors_keys[i]], zorder = 2, 
 					   label=label[i], 
 					   fillstyle='full', mfc="black", linewidth=2, ms =10
@@ -106,7 +106,7 @@ def simple_error_plt(y, y_err, x='', x_labels='', \
 				twins.append(ax)
 				color = colors['Jo-s_favs'][colors_keys[i]]
 
-			twins[i-1].errorbar(x, y[i], y_err[i],
+			twins[i-1].errorbar(x[i], y[i], y_err[i],
 				   fmt='o', color=color, zorder = 2, 
 				   label=label[i], 
 				   fillstyle='full', mfc=color, linewidth=2, ms =10
@@ -130,7 +130,7 @@ def simple_error_plt(y, y_err, x='', x_labels='', \
 
 	if ref_value is not None and ref_err is not None:
 		# Error band
-		ax.fill_between(x, ref_value-ref_err, ref_value+ref_err, facecolor='0.5', alpha=0.5,
+		ax.fill_between(x[0], ref_value-ref_err, ref_value+ref_err, facecolor='0.5', alpha=0.5,
 				label = ref_legend_label)
 
 	# plt.axhspan(ref_value-ref_err, ref_value+ref_err, facecolor='0.5', alpha=0.5)
@@ -164,6 +164,68 @@ def get_time_of_measurement(mpa_file, as_datetime = False):
 				return time
 			else:
 				return(date_array[1]+" "+date_array[2])
+
+def get_ref_values(offline_refs_d, parameter = 'mu0', species = '85Rb', n_revs = '2000', 
+				   fetch_file_nb = True, skip_file_nb=[], only_file_nb=[],
+				  ):
+	"""
+	Browse through all files in passed folder and get values from fit files and meta-data for 
+	passed species and number of revs.
+	Parameters:
+		- offline_refs_d: Root folder of files to browse through
+		- parameter: parameter to fetch
+		- species: species filter
+		- n_revs: number of revs filter
+		- fetch_file_nb : Fetches file number instead of time of file
+		- skip_file_nb: array of strings of file numbers to skip
+		- only_file_nb: array of strings of file numbers to fetch
+	"""
+	# Get number of fit parameters
+	x_val = []
+	y_val = []
+	y_val_err = []
+	for file in os.listdir(offline_refs_d):
+		path_to_file = offline_refs_d+file
+		try:
+			file_number = re.split('In_run_|_|\.|revs',file)[1]
+			file_species = re.split('In_run_|_|\.|revs',file)[2]
+			file_revs = re.split('In_run_|_|\.|revs',file)[3]
+		except:
+			continue
+		#
+		if file_species != species or file_revs != n_revs:
+			continue
+		if file_number in skip_file_nb:
+			# print(f"Skipped file {file_number}")
+			continue
+		if len(only_file_nb) != 0 and file_number not in only_file_nb:
+			# print(f"Skipped file {file_number}")
+			continue
+		#
+		file_base = re.split('\.',file)[0]
+		file_extension = re.split('\.',file)[1]
+		#
+		if file_extension == "mpa":
+			raw_file = MPANTMpa()
+			pars, data, df = raw_file.process(files=[offline_refs_d+file_base+".mpa"])
+			for key in pars[file_base].keys():
+				if 'report-file' in key:
+					date_array = pars[file_base][key].split("written")[1].split(" ")
+					time = datetime.datetime.strptime(date_array[1]+" "+date_array[2], '%m/%d/%Y %H:%M:%S')
+					#
+		if file_extension != 'txt': 
+			continue
+		#
+		fit_file = FitToDict(path_to_file)
+		
+		if fetch_file_nb:
+			x_val.append(file_number)
+		if not fetch_file_nb:
+			x_val.append(time)
+		y_val.append(float(fit_file.get_val(parameter, 'value')))
+		y_val_err.append(float(fit_file.get_val(parameter, 'error')))
+		#
+	return x_val, y_val, y_val_err
 
 class NUBASE():
 	'''
@@ -673,6 +735,11 @@ class MRToFIsotope(MRToFUtils):
 			print(f"Error input ref2")
 			return
 
+	def __print_results(self):
+		'''
+		
+		'''
+
 	def calc_mass(self, file_isotope='', file_ref1='', file_ref2='',
 						t_isotope='', t_ref1='', t_ref2='',
 						t_isotope_err='', t_ref1_err='', t_ref2_err='',
@@ -707,11 +774,14 @@ class MRToFIsotope(MRToFUtils):
 
 		# 
 		if print_results:
-			print(f"Result for {self.isotope}:\n\
-	- Mass Excess ISOLTRAP: {self.me_isotope:.1f}({self.me_isotope_err:.1f})keV\n\
-	- Mass Excess {self.ame_version}: {(self.m_isotope_AME-self.A)*self.u:.1f}({self.m_isotope_AME_err:.1f})keV\n\
-	- Mass Difference ISOLTRAP-{self.ame_version}: {abs(self.me_isotope)-abs((self.m_isotope_AME-self.A)*self.u):.1f}keV\n"
-				)
+			print(f"######################\n\
+# Result for {self.isotope}:\n\
+######################\n\
+# - Mass Excess ISOLTRAP: {self.me_isotope:.1f}({self.me_isotope_err:.1f})keV\n\
+# - Mass Excess {self.ame_version}: {(self.m_isotope_AME-self.A)*self.u:.1f}({self.m_isotope_AME_err:.1f})keV\n\
+# - Mass Difference ISOLTRAP-{self.ame_version}: {abs(self.me_isotope)-abs((self.m_isotope_AME-self.A)*self.u):.1f}keV\n\
+######################\n\
+				")
 	
 	def calc_exc_energy(self, file_isotope='', file_ref1='', file_ref2='',
 						t_isotope='', t_ref1='', t_ref2='',
@@ -754,11 +824,14 @@ class MRToFIsotope(MRToFUtils):
 			self.exc_energy_err = math.sqrt(self.custom_gs_err**2 + self.m_isotope_AME_err**2)
 		# 
 		if print_results:
-			print(f"Result for {self.isotope}-{self.state}:\n\
-	- Excitation energy ISOLTRAP: {self.exc_energy:.1f}({self.exc_energy_err:.1f})keV\n\
-	- Excitation energy NUBASE: {self.exc_energy_NUBASE:.1f}({self.exc_energy_NUBASE_err:.1f})keV\n\
-	- Energy Difference ISOLTRAP-{self.nubase_version}: {abs(self.exc_energy)-abs(self.exc_energy_NUBASE):.1f}keV\n"
-				)
+			print(f"######################\n\
+# Result for {self.isotope}-{self.state}:\n\
+######################\n\
+# - Excitation energy ISOLTRAP: {self.exc_energy:.1f}({self.exc_energy_err:.1f})keV\n\
+# - Excitation energy NUBASE: {self.exc_energy_NUBASE:.1f}({self.exc_energy_NUBASE_err:.1f})keV\n\
+# - Energy Difference ISOLTRAP-{self.nubase_version}: {abs(self.exc_energy)-abs(self.exc_energy_NUBASE):.1f}keV\n\
+######################\n\
+				")
 	
 	def store_result(self, results_file, overwrite = False, tags=""):
 		'''
@@ -1007,7 +1080,7 @@ class Peaks:
 															 'wspace':0.05})
 
 		# faster binning for projections than histograms -> necessary in order to automatically find peaks
-		x_proj = self.file.tof.value_counts(bins=500).sort_index()
+		x_proj = self.file.tof.value_counts(bins=self.get_binning(bins)).sort_index()
 		y_proj = self.file.sweep.value_counts(bins=500).sort_index()
 
 		# main plotting
@@ -1268,4 +1341,187 @@ class softCool(Peaks, ProcessorBase):
 
 		plt.tight_layout()
 		plt.show()
+
+class ToFExtrapolation:
+	"""
+	Class for simple ToF extrapolation to deal with ToF drifts. Current version implements simple linear ToF 
+	drift between measurements. Principle based on "sandwich measurements" similar to ICR measurements in PTMS.
+	"""
+	def __init__(self, isotope_files, ref1_files, ref2_files, isotope, ref1, ref2, n_revs, verbose = 0):
+		self.isotope_files = isotope_files
+		self.ref1_files = ref1_files
+		self.ref2_files = ref2_files
+		self.isotope = isotope
+		self.ref1 = ref1
+		self.ref2 = ref2
+		self.n_revs = n_revs
+
+	def pol1d_2points(self, x1, x2, y1, y2):
+		'''
+		Calculates first degree polynomial through two points.
+		Parameters:
+			- x1: first x-value
+			- x2: second x-value
+			- y1: first y-value
+			- y2: second y-value
+		Returns:
+			- m: slope
+			- b: y-axis crossing
+		'''
+		m = (y2-y1)/(x2-x1)
+		b = y2 - m*x2
+		return m, b
+
+	def pol1d(self, x, m, b):
+		'''
+		Returns polynomial of first degree.
+		Parameters:
+			- x: x value
+			- m: slope
+			- b: y-axis crossing
+		'''
+		return m*np.array(x)+b
+
+	def calc_lin_fit_params(self, ref_files):
+		"""
+		Calculates simple slope and y-axis crossing between two time/time-of-flight data points
+		Parameters:
+			- ref_files: array with two entries with paths to reference files (.mpa or .lst)
+		Returns:
+			- slope
+			- y-axis crossing
+		"""
+		if len(ref_files) == 2:
+			y_ref = []
+			x_ref = []
+			fit_file0 = FitToDict(ref_files[0].split(".")[0]+"_fit.txt")
+			fit_file1 = FitToDict(ref_files[1].split(".")[0]+"_fit.txt")
+			y_ref.append(float(fit_file0.get_val('mu0', 'value')))
+			y_ref.append(float(fit_file1.get_val('mu0', 'value')))
+			x_ref.append(get_time_of_measurement(ref_files[0].split(".")[0]+".mpa", as_datetime=True))
+			x_ref.append(get_time_of_measurement(ref_files[1].split(".")[0]+".mpa", as_datetime=True))
+					
+			m, b = self.pol1d_2points(datetime.datetime.timestamp(x_ref[0]), 
+								 datetime.datetime.timestamp(x_ref[1]), 
+								 y_ref[0], y_ref[1])
+			
+			return m, b
+		else:
+			print("(ToFExtrapolation.calc_lin_fit_params): WARNING: Only two fit files per references allowed currently.")
+			return -1,-1
+
+	def calc_reference_extrapolation(self):
+		""" 
+
+		"""
+		# Get time stamps of measurement files
+		x_isotope = []
+		for file in self.isotope_files:
+			file_base = re.split("/|\.", file)[-2]
+			path_to_file = re.split("/In_", file)[0]+"/"
+			# Get time of measurement
+			x_isotope.append(datetime.datetime.timestamp(
+								get_time_of_measurement(path_to_file+file_base+".mpa", as_datetime=True)
+								)
+							)
+		# Get ToF from measurements and referenecs
+		self.t_isotope = []
+		self.t_ref1 = []
+		self.t_ref2 = []
+		for file in self.isotope_files:
+			fit = FitToDict(file.split(".")[0]+"_fit.txt")
+			self.t_isotope.append(fit.get_val("mu0", "value"))
+		for file in self.ref1_files:
+			fit = FitToDict(file.split(".")[0]+"_fit.txt")
+			self.t_ref1.append(fit.get_val("mu0", "value"))
+		for file in self.ref2_files:
+			fit = FitToDict(file.split(".")[0]+"_fit.txt")
+			self.t_ref2.append(fit.get_val("mu0", "value"))
+
+		# Calculate extrapolation parameters
+		m_ref1, b_ref1 = self.calc_lin_fit_params(self.ref1_files)
+		m_ref2, b_ref2 = self.calc_lin_fit_params(self.ref2_files)
+
+		# Extrapolate
+		self.y_ref1_extrapol = self.pol1d(x_isotope, m_ref1, b_ref1)
+		self.y_ref1_extrapol_err = [5 for i in x_isotope] # needs to be calculated correctly, currently placeholder
+		self.y_ref2_extrapol = self.pol1d(x_isotope, m_ref2, b_ref2)
+		self.y_ref2_extrapol_err = [5 for i in x_isotope] # needs to be calculated correctly, currently placeholder
+
+		# Apply extrapolation
+		self.y_w_coorection = []
+		self.y_wo_coorection_file0 = []
+		self.y_wo_coorection_file1 = []
+		i = 0
+		for file in self.isotope_files:
+			# Calculate without correction, earlier file
+			self.result_wo_correction_ealier = MRToFIsotope(self.isotope, self.ref1, self.ref2, self.n_revs, state="gs")
+			self.result_wo_correction_ealier.calc_mass(file_isotope=file.split(".")[0]+"_fit.txt", 
+						   file_ref1 = self.ref1_files[0].split(".")[0]+"_fit.txt",
+						   file_ref2 = self.ref2_files[0].split(".")[0]+"_fit.txt",
+							# t_ref1 = y_ref1_extrapol[i], t_ref1_err=y_ref1_extrapol_err[i],
+							# t_ref2 = y_ref2_extrapol[i], t_ref2_err=y_ref2_extrapol_err[i],
+							centroid = 'mu0',
+							tweak_tofs = [0,0,0],
+							print_results = False)
+			self.y_wo_coorection_file0.append(
+				abs(self.result_wo_correction_ealier.me_isotope)-abs((self.result_wo_correction_ealier.m_isotope_AME-self.result_wo_correction_ealier.A)*self.result_wo_correction_ealier.u)
+			)
+			# Calculate without correction, later file
+			self.result_wo_correction_later = MRToFIsotope(self.isotope, self.ref1, self.ref2, self.n_revs, state="gs")
+			self.result_wo_correction_later.calc_mass(file_isotope=file.split(".")[0]+"_fit.txt", 
+						   file_ref1 = self.ref1_files[1].split(".")[0]+"_fit.txt",
+						   file_ref2 = self.ref2_files[1].split(".")[0]+"_fit.txt",
+							# t_ref1 = y_ref1_extrapol[i], t_ref1_err=y_ref1_extrapol_err[i],
+							# t_ref2 = y_ref2_extrapol[i], t_ref2_err=y_ref2_extrapol_err[i],
+							centroid = 'mu0',
+							tweak_tofs = [0,0,0],
+							print_results = False)
+			self.y_wo_coorection_file1.append(
+				abs(self.result_wo_correction_later.me_isotope)-abs((self.result_wo_correction_later.m_isotope_AME-self.result_wo_correction_later.A)*self.result_wo_correction_later.u)
+			)
+			# Calculate with simple correction
+			self.result_w_correction = MRToFIsotope(self.isotope, self.ref1, self.ref2, self.n_revs, state="gs")
+			self.result_w_correction.calc_mass(file_isotope=file.split(".")[0]+"_fit.txt", 
+							t_ref1 = self.y_ref1_extrapol[i], t_ref1_err=self.y_ref1_extrapol_err[i],
+							t_ref2 = self.y_ref2_extrapol[i], t_ref2_err=self.y_ref2_extrapol_err[i],
+							centroid = 'mu0',
+							tweak_tofs = [0,0,0],
+							print_results = False)
+			self.y_w_coorection.append(
+				abs(self.result_w_correction.me_isotope)-abs((self.result_w_correction.m_isotope_AME-self.result_w_correction.A)*self.result_w_correction.u)
+			)
+			#
+			i+=1
+
+		# Convert UNIX time back to datetime
+		self.x_isotope_time = [datetime.datetime.fromtimestamp(time) for time in x_isotope]
+
+	def plot_extrapolation(self):
+		"""
+
+		"""
+		simple_error_plt(y=[self.y_ref1_extrapol], y_err=[self.y_ref1_extrapol_err], x=self.x_isotope_time, label = ["Test"],
+				 x_label = "Time", y_label = ["Test"], title = f"{self.n_revs}-files",
+				 ref_legend_label='ISOLTRAP21 - AME20 [keV]',
+				 x_share = True,
+				)
+
+	def plot_comparison(self):
+		"""
+
+		"""
+		y = [self.y_w_coorection, self.y_wo_coorection_file0, self.y_wo_coorection_file1]
+		y_err = [[5 for i in self.x_isotope_time], [5 for i in self.x_isotope_time], [5 for i in self.x_isotope_time]]
+		label = ['With correction', 'Early ref file', 'Late ref file']
+		y_label = ['Time-of-Flight [ns]', 'Time-of-Flight [ns]', 'Time-of-Flight [ns]']
+		#
+		simple_error_plt(y=y, y_err=y_err, x=[self.x_isotope_time for i in range(3)], label = label,
+                 x_label = "Time", y_label = y_label, title = "2000revs Files",
+                 ref_value = abs(self.result_w_correction.me_isotope)-abs((self.result_w_correction.m_isotope_AME-self.result_w_correction.A)*self.result_w_correction.u),
+                 ref_err=self.result_w_correction.me_isotope_err,
+                 # ref_err=calc.get_value('105In', 'mass_excess', 'error'),
+                 ref_legend_label='ISOLTRAP21 - AME20 [keV]',
+                 x_share = False,
+                )
 
