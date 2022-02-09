@@ -163,6 +163,159 @@ class FitMethods():
 		[hist.Fill(x) for x in list_file.tof]
 		return hist
 
+	def find_peak_and_fwhm(self, mu, sigma):
+		# Taken form $ROOTSYS/tutorials/fit/langaus.C
+		# Seaches for the location (x value) at the maximum of the
+		# combined pdf and its full width at half-maximum.
+		#
+		# The search is probably not very efficient, but it's a first try.
+		i = 0;
+		MAXCALLS = 10000
+		# Search for maximum
+		p = mu - 0.1 * sigma
+		step = 0.05 * sigma
+		lold = -2.0
+		l    = -1.0
+		while ( (l != lold) and (i < MAXCALLS) ): 
+			i += 1
+			lold = l
+			x = p + step;
+			# Evaluate the fit at value x 
+			self.RooRealVar_dict['x'].setVal(x)
+			l = self.this_pdf.getVal(ROOT.RooArgSet(self.RooRealVar_dict['x']))
+			if (l < lold):
+				step = -step/10
+			p += step
+		#
+		if (i == MAXCALLS):
+			print("fit_Lukas::hyperEmg::find_peak_and_fwhm: could not find peak")
+			return -1, -1, -1, -1
+		# Maximum found at maxx=x
+		maxx = x
+		fy = l/2
+		# Search for right x location of fy
+		p = maxx + sigma
+		step = sigma
+		lold = -2.0
+		l    = -1e300
+		i    = 0
+		while ( (l != lold) and(i < MAXCALLS) ): 
+			i += 1
+			lold = l
+			x = p + step
+			# Evaluate the fit at value x 
+			self.RooRealVar_dict['x'].setVal(x)
+			l = abs(self.this_pdf.getVal(ROOT.RooArgSet(self.RooRealVar_dict['x'])) - fy)
+			if (l > lold):
+				step = -step/10
+			p += step
+		#
+		if (i == MAXCALLS):
+			print("fit_Lukas::hyperEmg::find_peak_and_fwhm: right FWHM value not found")
+			return maxx, -1, -1, -1
+		# Right location found 
+		fxr = x
+		# Search for left x location of fy
+		p = maxx - 0.5 *sigma
+		step = -sigma
+		lold = -2.0
+		l    = -1e300
+		i    = 0
+		while ( (l != lold) and (i < MAXCALLS) ):
+			i += 1
+			lold = l
+			x = p + step
+			# Evaluate the fit at value x 
+			self.RooRealVar_dict['x'].setVal(x)
+			l = abs(self.this_pdf.getVal(ROOT.RooArgSet(self.RooRealVar_dict['x'])) - fy)
+			if (l > lold):
+				step = -step/10
+			p += step
+		#
+		if (i == MAXCALLS):
+			print("fit_Lukas::hyperEmg::find_peak_and_fwhm: left FWHM value not found")
+			return maxx, -1, -1, -1
+		# 
+		fxl = x;
+		FWHM = fxr - fxl;
+		return maxx, FWHM, fxl, fxr
+
+	def save_fit(self, file_name=False):
+		"""
+		Saves fit results in plain text file
+		"""
+		# Write fit file
+		if file_name == False: file_name = self.base_file_name+"_fit.txt"
+		f = open(file_name, "w")
+		f.write(f"RooFit Results\n")
+		# If meta data was read from the lst file:
+		f.write(f"[META-DATA]\n") 
+		f.write(f"file={self.base_file_name}\n")
+		for key in self.meta_data:
+			f.write(f"{self.meta_data[key]}\n")
+		# Fit results
+		f.write(f"fit_function={self.fit_func_name}\n")
+		f.write(f"binning={self.binning}\n")
+		f.write(f"dimensions={self.dimensions}\n")
+		f.write(f"n_comps={self.n_comps}\n")
+		f.write(f"xmin={self.xmin}\n")
+		f.write(f"xmax={self.xmax}\n")
+		f.write(f"numerical_peak={self.numerical_peak}\n")
+		f.write(f"numerical_FWHM={self.numerical_FWHM}\n")
+		f.write(f"numerical_FWHM_left={self.numerical_FWHM_left}\n")
+		f.write(f"numerical_FWHM_right={self.numerical_FWHM_right}\n")
+		#
+		f.write(f"[RESULTS-TABLE]\n")
+		f.write(f"var value error error_lo error_high var_init var_lim_lo var_lim_hi\n")
+		for var in self.RooRealVar_dict:
+			if var == 'x': continue
+			f.write(f"{var} {self.RooRealVar_dict[var].getValV()} {self.RooRealVar_dict[var].getError()} ")
+			f.write(f"{self.RooRealVar_dict[var].getErrorLo()} {self.RooRealVar_dict[var].getErrorHi()} ")
+			f.write(f"{self.limits[var][0]} {self.limits[var][1]} {self.limits[var][2]}\n")
+		#
+		f.write(f"[FIT-VALUES]\n")
+		f.write(f"tof fit\n")
+		xm = np.linspace(self.xmin, self.xmax, num=5000)
+		# Get fit results for x-axis
+		y_val = []
+		for i in xm:
+			self.RooRealVar_dict['x'].setVal(i)
+			f.write(f"{i:.3f} {self.this_pdf.getVal(ROOT.RooArgSet(self.RooRealVar_dict['x'])):.6f}\n")
+		f.close()
+
+	def load_fit(self, file):
+		'''
+		Reads fit file that is generated from the FitToDict() class. Stores meta data within class scope.
+		Parameters:
+			- file: input file
+		Return
+			- xvalues of fit
+			- yvalues of fit 
+		'''
+		fitfromfile = FitToDict(file)
+		#
+		if not 'FIT-VALUES' in fitfromfile.fit:
+			print(f"Fit file {file} has no fit values that were exported.")
+			return 0
+		#
+		xm = fitfromfile.fit['FIT-VALUES'].tof
+		y_val = fitfromfile.fit['FIT-VALUES'].fit
+		self.xmin = float(fitfromfile.fit['META-DATA']['xmin'])
+		self.xmax = float(fitfromfile.fit['META-DATA']['xmax'])
+		self.numerical_peak = float(fitfromfile.fit['META-DATA']['numerical_peak'])
+		self.numerical_FWHM = float(fitfromfile.fit['META-DATA']['numerical_FWHM'])
+		self.numerical_FWHM_left = float(fitfromfile.fit['META-DATA']['numerical_FWHM_left'])
+		self.numerical_FWHM_right = float(fitfromfile.fit['META-DATA']['numerical_FWHM_right'])
+		self.dimensions = np.fromstring(fitfromfile.fit['META-DATA']['dimensions'].strip('[]'), sep=',', dtype=int)
+		self.fit_func_name = fitfromfile.fit['META-DATA']['fit_function']
+		self.n_comps = int(fitfromfile.fit['META-DATA']['n_comps'])
+		#
+		for idx,row in fitfromfile.fit['RESULTS-TABLE'].iterrows():
+			self.Var_dict[row['var']] = row['value']
+		#
+		return xm, y_val
+
+
 # def read_fit(path_to_file):
 # 	meta_data_keys = ["range", "swpreset", "cycles", "cmline0", "caloff", "calfact", "time_patch",
 # 					  "fit_function", "binning", "xmin", "xmax", "numerical_peak", "numerical_FWHM", 
@@ -280,15 +433,23 @@ class doubleGauss(FitMethods):
 	"""
 	Class handling the Gaussian model.
 	"""
-	def __init__(self, lst_file, peaks = 'findit', verbose=False):
+	def __init__(self, lst_file, file_path = False, peaks = 'findit', verbose=False):
 		"""
 		Initializes the class and number of parameters.
 		"""        
+		self.fit_func_name = "doubleGauss"
 		# QtWidgets.QWidget.__init__(self)
-		FitMethods.__init__(self, lst_file, 'double_gauss', 2, peaks=peaks, verbose=verbose)
+		FitMethods.__init__(self, lst_file, file_path=file_path, name='double_gauss', peaks=peaks, verbose=verbose)
 		# self.setupUi(self)
 		# self.update_par_list()
 		self.hist = self.lst2roothist(self.lst_file, bins=2000)
+		self.RooGenericPdf_dict = {}
+		
+		if file_path == False: 
+			self.base_file_name = 'path_to_file'
+		else:
+			self.base_file_name = file_path
+
 
 	def init_limits(self):
 		self.limits = {
@@ -298,16 +459,22 @@ class doubleGauss(FitMethods):
 			'ratio':[0.5,0,1],
 		}
 
-	def call_pdf(self, xmin, xmax, limits=False, index=0):
+	def call_pdf(self, xmin, xmax, bins=1, dimensions = [0,1], n_comps = 2, limits=False):
 		"""
 		Setup Variable, Parameters and PDF and performs fitting of the PDF to ROI data.
 		:param roi_hist: histogram to fit
 		:param xmin: range min for the fit
 		:param xmax: range max for the fit
-		:param index: peak index for display
 		:return list: containing all relevant information about the ROI histogram, PDF, parameters,
 					  PDF components and fit results
 		"""
+		# Convert histogram
+		self.bins = bins
+		self.binning = self.get_binning(bins=self.bins)
+		self.hist = self.lst2roothist(self.lst_file, bins=1)
+		#
+		self.dimensions = dimensions 
+		self.n_comps = n_comps
 		self.xmin = xmin
 		self.xmax = xmax
 		self.hist.GetXaxis().SetRangeUser(self.xmin, self.xmax)
@@ -324,71 +491,202 @@ class doubleGauss(FitMethods):
 		# self.set_value(1, self.hist.GetStdDev(1))
 		# self.set_limits(1, 0.01*self.hist.GetStdDev(1), 10*self.hist.GetStdDev(1))
 		#
-		self.x = RooRealVar("x", self.rootitle, self.xmin, self.xmax, self.roounit)
-		self.mean0 = RooRealVar('mean{}0'.format(index), 'mean{}0'.format(index),
-						  self.limits["mean0"][0], self.limits["mean0"][1], self.limits["mean0"][2])
-		self.mean1 = RooRealVar('mean{}1'.format(index), 'mean{}1'.format(index),
-						  self.limits["mean1"][0], self.limits["mean1"][1], self.limits["mean1"][2])
-		self.sigma = RooRealVar('sigma{}'.format(index), 'sigma{}'.format(index),
+		self.RooRealVar_dict['x'] = RooRealVar("x", self.rootitle, self.xmin, self.xmax, self.roounit)
+		self.RooRealVar_dict['mu0'] = RooRealVar('mu0', 'mu0',
+						  self.limits["mu0"][0], self.limits["mu0"][1], self.limits["mu0"][2])
+		self.RooRealVar_dict['mu1'] = RooRealVar('mu1', 'mu1',
+						  self.limits["mu1"][0], self.limits["mu1"][1], self.limits["mu1"][2])
+		self.RooRealVar_dict['sigma'] = RooRealVar('sigma', 'sigma',
 						   self.limits["sigma"][0], self.limits["sigma"][1], self.limits["sigma"][2])
-		self.ratio = RooRealVar(f'ratio{index}0', "ratio0", 
+		self.RooRealVar_dict['ratio'] = RooRealVar(f'ratio', "ratio", 
 							self.limits["ratio"][0], self.limits["ratio"][1], self.limits["ratio"][2])
-		sig0 = RooGaussian('gauss_{}0'.format(index), 'Gaussian Model {}0'.format(index), self.x, self.mean0, self.sigma)
-		sig1 = RooGaussian('gauss_{}1'.format(index), 'Gaussian Model {}1'.format(index), self.x, self.mean1, self.sigma)
+		#
+		self.RooGenericPdf_dict['sig0'] = RooGaussian('gauss_0', 'Gaussian Model 0', 	self.RooRealVar_dict['x'], 
+																						self.RooRealVar_dict['mu0'], 
+																						self.RooRealVar_dict['sigma'])
+		self.RooGenericPdf_dict['sig1'] = RooGaussian('gauss_1', 'Gaussian Model 1', 	self.RooRealVar_dict['x'], 
+																						self.RooRealVar_dict['mu1'], 
+																						self.RooRealVar_dict['sigma'])
 
-		self.this_pdf = RooAddPdf(f'double_Gaussian{index}', f'Two Gaussians added {index}',
-								  RooArgList(sig0, sig1), RooArgList(self.ratio))
-		# norm = RooRealVar('events{}'.format(index), "Nb of Events", self.roi_counts)
+		self.this_pdf = RooAddPdf(f'double_Gaussian', f'Two Gaussians added',
+								  RooArgList(self.RooGenericPdf_dict['sig0'], self.RooGenericPdf_dict['sig1']), self.RooRealVar_dict['ratio'])
+		# norm = RooRealVar('events{}', "Nb of Events", self.roi_counts)
 		# self.ext_this_pdf = RooExtendPdf('ext_gauss{}'.format(index), 'Ext Gaussian', self.this_pdf, norm)
-		self.roodefs = [self.this_pdf, self.x, self.mean0, self.mean1, self.sigma]
+		self.roodefs = [self.this_pdf, self.RooRealVar_dict, self.RooGenericPdf_dict]
 		# self.fix_var(self.roodefs[2:], index)
 		self.this_roohist, self.fit_results = self.minimize(self.hist, self.xmin, self.xmax)
-		return [self.this_roohist, self.this_pdf, self.nb_pars,
-				self.x, self.mean0, self.mean1, self.sigma, self.pstate,
-				self.my_name, self.spl_draw, self.rooCompon, self.fit_results]
+
+		# Store fit results in dict
+		for key in self.RooRealVar_dict:
+			self.Var_dict[key] = self.RooRealVar_dict[f'{key}'].getValV()
+
+		# Calculate numerical position of maximum and FWHM
+		mu = self.RooRealVar_dict['mu0'].getValV()
+		sigma = self.RooRealVar_dict['sigma'].getValV()
+		self.numerical_peak, self.numerical_FWHM, self.numerical_FWHM_left, self.numerical_FWHM_right = self.find_peak_and_fwhm(mu, sigma)
+
+		return [self.this_roohist, self.roodefs, self.this_pdf, self.my_name, self.spl_draw, self.rooCompon, self.fit_results]	
+
 	
-	def plot(self, bins=2000, log=False):
-		"""  """
+	def plot(self, bins = 1, log=False, focus=-1, from_file = False, file_out=False, silent=True, 
+			 centroids=False, carpet=False, legend=True):
+		"""  
+		Wrapper for plotting the fit and data
+			- bins: number of bins to rebin. Defaults to 1, e.g. no rebinning
+			- log: plot y-scale in log. Defaults to false
+			- from_file: file to read fit from if already fitted earlier .pdf. Defaults to False, fit needs to be executed beforehand 
+			- file_out: name to save plot as .pdf. Defaults to False, e.g. no saving
+			- silent: True shows plot, false does not show plot (for silent printing)
+			- centroids: True shows centroids of Gaussian components, as well as location of FWHM of main peak. Defaults to False.
+			- components: Plots components to EGH as grey dashed lines
+			- carpet: If true, plots carpet 
+			- legend: Plot legend if
+		"""
 		if len(self.lst_file) == 0:
 			print("Fit not excecuted yet or failed.")
 			return 0 
-		#            
+		#       
+		self.bins = bins
 		xdata = self.lst_file.tof
-		n, xe = np.histogram(xdata, bins=bins)
-		cx = 0.5 * (xe[1:] + xe[:-1])
+		n, xe = np.histogram(xdata, bins=self.get_binning(self.bins))
+		# n = n/len(xdata)
+		cx = 0.5 * (xe[1:] + xe[:-1]) 
 		dx = np.diff(xe)
-		plt.errorbar(cx, n, n ** 0.5, fmt="ok", zorder=1)
-		xm = np.linspace(xe[0], xe[-1], num=1000)
-		# Plot 'carpet'
-		if log:
-			plt.plot(xdata, np.zeros_like(xdata)+0.9, "|", alpha=0.1, label = "ToF Data", zorder = 3)
-		plt.plot(xdata, np.zeros_like(xdata)-5, "|", alpha=0.1, label = "ToF Data", zorder = 3)
-		#
-		# Plot fits, loop through all fits
-		if log:
-			xm = np.linspace(self.mean0.getValV()-100, self.mean1.getValV()+100, num=1000)
-		# Calculate values of PDFs for plotting
-		y_val = [(self.ratio.getValV() * RootMath.gaussian_pdf(x=y, x0=self.mean0.getValV(), sigma=self.sigma.getValV()) +
-				 (1-self.ratio.getValV()) * RootMath.gaussian_pdf(x=y, x0=self.mean1.getValV(), sigma=self.sigma.getValV()) )
-				 for y in xm]
+		# Plot data
+		# plt.scatter(cx, n, zorder=1)
+		
+		# Get fit and prepare fit parameters for plotting,
+		#	- Either from the call_pdf during the same program excecution
+		# 	- or from the fit file that saves the (not normalized) fit
+		if not from_file:
+			# X-Axis for fit
+			xm = np.linspace(self.xmin, self.xmax, num=5000)
+			# Get fit results for x-axis
+			y_val = []
+			for i in xm:
+				self.RooRealVar_dict['x'].setVal(i)
+				y_val.append(self.this_pdf.getVal(ROOT.RooArgSet(self.RooRealVar_dict['x'])))	
+		else:
+			# Read fit file
+			xm, y_val = self.load_fit(from_file)
+
+		# Plot data
+		plt.errorbar(cx - self.numerical_peak,
+					 n, n ** 0.5, fmt="ok", zorder=1, label=f"Data (bins={bins})")
+
 		# Normalize values
 		integral_cut = sum(y_val) * np.diff(xm)[0]
 		left_n_cut = len(xe[xe<self.xmin])
 		right_n_cut = len(xe[xe<self.xmax])
 		n_cut = n[left_n_cut:right_n_cut]        
 		y_val = y_val / integral_cut * sum(n_cut) * dx[0]
-		# Plot
-		plt.plot(xm, y_val, ls=":", label=f"init", zorder=2)
-		plt.plot(xm, y_val, label=f"fit", c='r', zorder=3)
+
+		# Plot fit	
+		plt.plot(xm - self.numerical_peak, 
+				 y_val, label=f"{self.fit_func_name}({self.dimensions[0]},{self.dimensions[1]})", c='r', zorder=3, linewidth=3)
 		
-		plt.legend();
+		# Plot 'carpet'
+		if carpet:
+			if log:
+				plt.plot(xdata - self.numerical_peak, 
+						 np.zeros_like(xdata)+0.9, "|", alpha=0.1, zorder = 3)
+			plt.plot(xdata - self.numerical_peak, 
+					 np.zeros_like(xdata)-5, "|", alpha=0.1, zorder = 3)
+
+		# Plot numerical peak position and FWHM
+		if centroids:
+			plt.axvline(self.numerical_peak - self.numerical_peak, c='r', linewidth=1, zorder=3)
+			plt.axvline(self.numerical_FWHM_left - self.numerical_peak, c='blue', linewidth=1, zorder=3)
+			plt.axvline(self.numerical_FWHM_right - self.numerical_peak, c='blue', linewidth=1, zorder=3)
+			# Plot center of gaussian component
+			for comp in range(0,self.n_comps,1):
+				plt.axvline(self.Var_dict[f'mu{comp}'] - self.numerical_peak, c='r', linewidth=1, zorder=3)
+
+		# # Plot components
+		# if components:
+		# 	i_ratio = 0 
+		# 	n_ratios = self.n_comps * (self.dimensions[0] + self.dimensions[1]) - 1
+
+		# 	print([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)])
+		# 	print(sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)]))
+		# 	print(1-sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)]))
+
+		# 	# Loop through components as the ratios are assigned: inner loop must be the different species while outer loop is the egh component
+		# 	# Negative egh components
+		# 	for dim in range(0,self.dimensions[0],1):
+		# 		for comp in range(0,self.n_comps,1):
+		# 			y_val = self.neg_func(x=xm,mu=self.Var_dict[f'mu{comp}'], 
+		# 										sigma=self.Var_dict[f'sigma'], 
+		# 										ntau=self.Var_dict[f'ntau{dim}'])
+		# 			# normalize accounting for fit ratios
+		# 			integral_cut = sum(y_val) * np.diff(xm)[0]
+		# 			y_val = y_val / integral_cut * sum(n_cut) * dx[0]
+		# 			if (self.n_comps == 1 and (self.dimensions[0]+self.dimensions[1]) == 1):
+		# 				ratio = 1
+		# 			else:
+		# 				if i_ratio != n_ratios:
+		# 					y_val *= self.Var_dict[f'ratio{i_ratio}']
+		# 				else:
+		# 					y_val *= 1-sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)])
+		# 			i_ratio += 1
+		# 			# Plot
+		# 			plt.plot(xm - self.numerical_peak, 
+		# 					 y_val, label=f"Neg. component {comp}:{dim})", c='grey', ls="--", zorder=2, linewidth=1.75)
+		# 	# Positive egh components
+		# 	for dim in range(0,self.dimensions[1],1):
+		# 		for comp in range(0,self.n_comps,1):
+		# 			y_val = self.pos_func(x=xm,mu=self.Var_dict[f'mu{comp}'], 
+		# 										sigma=self.Var_dict[f'sigma'], 
+		# 										ptau=self.Var_dict[f'ptau{dim}'])
+		# 			# normalize accounting for fit ratios
+		# 			integral_cut = sum(y_val) * np.diff(xm)[0]
+		# 			y_val = y_val / integral_cut * sum(n_cut) * dx[0]
+		# 			if (self.n_comps == 1 and (self.dimensions[0]+self.dimensions[1]) == 1):
+		# 				ratio = 1
+		# 			else:
+		# 				if i_ratio != n_ratios:
+		# 					y_val *= self.Var_dict[f'ratio{i_ratio}']
+		# 				else:
+		# 					y_val *= 1-sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)])
+		# 			i_ratio += 1
+		# 			# Plot
+		# 			plt.plot(xm - self.numerical_peak, 
+		# 					 y_val, label=f"Pos. component {comp}:{dim})", c='grey', ls="--", zorder=2, linewidth=1.75)
+
+		# Get y axis limits
+		ylims = plt.ylim()
 		if log:
 			plt.yscale("log")
+			plt.ylim(0.1,2*ylims[1])
+
 		# Zoom in on found peaks
 		if self.peaks.n_peaks != 0:
-			plt.xlim(self.peaks.earliest_left_base-200, self.peaks.latest_right_base+200)
+			plt.xlim(self.peaks.earliest_left_base - 400 - self.numerical_peak, 
+					 self.peaks.latest_right_base + 400 - self.numerical_peak)
+			if focus != -1:
+				plt.xlim(self.peaks.pos[focus] - 600 - self.numerical_peak, 
+						 self.peaks.pos[focus] + 600 - self.numerical_peak)
 
-		plt.show()
+		# Add axis labels
+		plt.xlabel(f'Time-of-Flight [ns] - {self.numerical_peak:.1f}ns', fontsize=20)
+		plt.ylabel(f'Counts per bin', fontsize=20)
+
+		# Format Legend
+		if legend:
+			plt.legend(fontsize=20)
+
+		# Save plot
+		if file_out != False:
+			print(f"Plot fit save as {file_out}")
+			plt.savefig(file_out, dpi=300)
+
+		# Show plot on canvas
+		if silent == False:
+			plt.show()
+
+		# Clear canvas to avoid printing on top of other plot in batch mode
+		if silent:
+			plt.clf()
 
 class Egh(FitMethods):
 	"""
@@ -813,159 +1111,7 @@ class hyperEmg(FitMethods):
 				funct += self.function_string(c2 = sigma, c3=f"{params[temp]}", R=f"{ratio}", pol="-")+ "+"
 			comp+=1
 		return funct[:-1] # cut away last character which is a "+"
-
-	def find_peak_and_fwhm(self, mu, sigma):
-		# Taken form $ROOTSYS/tutorials/fit/langaus.C
-		# Seaches for the location (x value) at the maximum of the
-		# combined pdf and its full width at half-maximum.
-		#
-		# The search is probably not very efficient, but it's a first try.
-		i = 0;
-		MAXCALLS = 10000
-		# Search for maximum
-		p = mu - 0.1 * sigma
-		step = 0.05 * sigma
-		lold = -2.0
-		l    = -1.0
-		while ( (l != lold) and (i < MAXCALLS) ): 
-			i += 1
-			lold = l
-			x = p + step;
-			# Evaluate the fit at value x 
-			self.RooRealVar_dict['x'].setVal(x)
-			l = self.this_pdf.getVal(ROOT.RooArgSet(self.RooRealVar_dict['x']))
-			if (l < lold):
-				step = -step/10
-			p += step
-		#
-		if (i == MAXCALLS):
-			print("fit_Lukas::hyperEmg::find_peak_and_fwhm: could not find peak")
-			return -1, -1, -1, -1
-		# Maximum found at maxx=x
-		maxx = x
-		fy = l/2
-		# Search for right x location of fy
-		p = maxx + sigma
-		step = sigma
-		lold = -2.0
-		l    = -1e300
-		i    = 0
-		while ( (l != lold) and(i < MAXCALLS) ): 
-			i += 1
-			lold = l
-			x = p + step
-			# Evaluate the fit at value x 
-			self.RooRealVar_dict['x'].setVal(x)
-			l = abs(self.this_pdf.getVal(ROOT.RooArgSet(self.RooRealVar_dict['x'])) - fy)
-			if (l > lold):
-				step = -step/10
-			p += step
-		#
-		if (i == MAXCALLS):
-			print("fit_Lukas::hyperEmg::find_peak_and_fwhm: right FWHM value not found")
-			return maxx, -1, -1, -1
-		# Right location found 
-		fxr = x
-		# Search for left x location of fy
-		p = maxx - 0.5 *sigma
-		step = -sigma
-		lold = -2.0
-		l    = -1e300
-		i    = 0
-		while ( (l != lold) and (i < MAXCALLS) ):
-			i += 1
-			lold = l
-			x = p + step
-			# Evaluate the fit at value x 
-			self.RooRealVar_dict['x'].setVal(x)
-			l = abs(self.this_pdf.getVal(ROOT.RooArgSet(self.RooRealVar_dict['x'])) - fy)
-			if (l > lold):
-				step = -step/10
-			p += step
-		#
-		if (i == MAXCALLS):
-			print("fit_Lukas::hyperEmg::find_peak_and_fwhm: left FWHM value not found")
-			return maxx, -1, -1, -1
-		# 
-		fxl = x;
-		FWHM = fxr - fxl;
-		return maxx, FWHM, fxl, fxr
 		
-	def save_fit(self, file_name=False):
-		"""
-		Saves fit results in plain text file
-		"""
-		# Write fit file
-		if file_name == False: file_name = self.base_file_name+"_fit.txt"
-		f = open(file_name, "w")
-		f.write(f"RooFit Results\n")
-		# If meta data was read from the lst file:
-		f.write(f"[META-DATA]\n") 
-		f.write(f"file={self.base_file_name}\n")
-		for key in self.meta_data:
-			f.write(f"{self.meta_data[key]}\n")
-		# Fit results
-		f.write(f"fit_function={self.fit_func_name}\n")
-		f.write(f"binning={self.binning}\n")
-		f.write(f"dimensions={self.dimensions}\n")
-		f.write(f"n_comps={self.n_comps}\n")
-		f.write(f"xmin={self.xmin}\n")
-		f.write(f"xmax={self.xmax}\n")
-		f.write(f"numerical_peak={self.numerical_peak}\n")
-		f.write(f"numerical_FWHM={self.numerical_FWHM}\n")
-		f.write(f"numerical_FWHM_left={self.numerical_FWHM_left}\n")
-		f.write(f"numerical_FWHM_right={self.numerical_FWHM_right}\n")
-		#
-		f.write(f"[RESULTS-TABLE]\n")
-		f.write(f"var value error error_lo error_high var_init var_lim_lo var_lim_hi\n")
-		for var in self.RooRealVar_dict:
-			if var == 'x': continue
-			f.write(f"{var} {self.RooRealVar_dict[var].getValV()} {self.RooRealVar_dict[var].getError()} ")
-			f.write(f"{self.RooRealVar_dict[var].getErrorLo()} {self.RooRealVar_dict[var].getErrorHi()} ")
-			f.write(f"{self.limits[var][0]} {self.limits[var][1]} {self.limits[var][2]}\n")
-		#
-		f.write(f"[FIT-VALUES]\n")
-		f.write(f"tof fit\n")
-		xm = np.linspace(self.xmin, self.xmax, num=5000)
-		# Get fit results for x-axis
-		y_val = []
-		for i in xm:
-			self.RooRealVar_dict['x'].setVal(i)
-			f.write(f"{i:.3f} {self.this_pdf.getVal(ROOT.RooArgSet(self.RooRealVar_dict['x'])):.6f}\n")
-		f.close()
-
-	def load_fit(self, file):
-		'''
-		Reads fit file that is generated from the FitToDict() class. Stores meta data within class scope.
-		Parameters:
-			- file: input file
-		Return
-			- xvalues of fit
-			- yvalues of fit 
-		'''
-		fitfromfile = FitToDict(file)
-		#
-		if not 'FIT-VALUES' in fitfromfile.fit:
-			print(f"Fit file {file} has no fit values that were exported.")
-			return 0
-		#
-		xm = fitfromfile.fit['FIT-VALUES'].tof
-		y_val = fitfromfile.fit['FIT-VALUES'].fit
-		self.xmin = float(fitfromfile.fit['META-DATA']['xmin'])
-		self.xmax = float(fitfromfile.fit['META-DATA']['xmax'])
-		self.numerical_peak = float(fitfromfile.fit['META-DATA']['numerical_peak'])
-		self.numerical_FWHM = float(fitfromfile.fit['META-DATA']['numerical_FWHM'])
-		self.numerical_FWHM_left = float(fitfromfile.fit['META-DATA']['numerical_FWHM_left'])
-		self.numerical_FWHM_right = float(fitfromfile.fit['META-DATA']['numerical_FWHM_right'])
-		self.dimensions = np.fromstring(fitfromfile.fit['META-DATA']['dimensions'].strip('[]'), sep=',', dtype=int)
-		self.fit_func_name = fitfromfile.fit['META-DATA']['fit_function']
-		self.n_comps = int(fitfromfile.fit['META-DATA']['n_comps'])
-		#
-		for idx,row in fitfromfile.fit['RESULTS-TABLE'].iterrows():
-			self.Var_dict[row['var']] = row['value']
-		#
-		return xm, y_val
-
 	def constraints_from_file(self, file, params_to_fix):
 		'''
 		Loads and sets constraints for fit from fit file

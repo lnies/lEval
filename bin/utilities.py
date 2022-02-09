@@ -804,6 +804,7 @@ class MRToFIsotope(MRToFUtils):
 			- centroid: time-of-flight centroid to be used to calculate mass ['mu0', 'numerical_mean']
 			- tweak_tofs: array [tof_isotope, tof_ref1, tof_ref2] that add tof to the extracted values from the fit files to tweak the mass and see influence of tof drifts
 			- custom_gs: use ground state mass passsed in [u] to calculate excitation energy. Defaults to AME value
+			- custom_gs_err: use ground state mass err passsed in [u] to calculate excitation energy. Defaults to AME value
 			- print_results: prints short formatted results of calculation
 		'''
 		# Store ToFs
@@ -827,7 +828,7 @@ class MRToFIsotope(MRToFUtils):
 			self.exc_energy_err = math.sqrt(self.m_isomere_err**2 + self.m_isotope_AME_err**2)
 		else:
 			self.exc_energy = (self.m_isomere-self.custom_gs) * self.u # [keV]
-			self.exc_energy_err = math.sqrt(self.custom_gs_err**2 + self.m_isomere_err**2)
+			self.exc_energy_err = math.sqrt(self.custom_gs_err**2 + self.m_isomere_err**2)* self.u # [keV]
 		# 
 		if print_results:
 			print(f"######################\n\
