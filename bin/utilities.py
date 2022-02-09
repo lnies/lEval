@@ -827,7 +827,7 @@ class MRToFIsotope(MRToFUtils):
 			self.exc_energy_err = math.sqrt(self.m_isomere_err**2 + self.m_isotope_AME_err**2)
 		else:
 			self.exc_energy = (self.m_isomere-self.custom_gs) * self.u # [keV]
-			self.exc_energy_err = math.sqrt(self.custom_gs_err**2 + self.m_isotope_AME_err**2)
+			self.exc_energy_err = math.sqrt(self.custom_gs_err**2 + self.m_isomere_err**2)
 		# 
 		if print_results:
 			print(f"######################\n\
