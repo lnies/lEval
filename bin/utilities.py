@@ -346,7 +346,7 @@ class NUBASE():
 						return -1
 					fetched_value += data**2
 			#
-			elif value == 'excitation_energy' and (state == 'n' or state == 'm'):
+			elif value == 'excitation_energy' and state in ['i', 'j', 'k', 'l', 'm', 'n']:
 				# Get dataframe index of isotope 
 				idx = -1
 				idx_list = self.nubase.index[(self.nubase["A"]==A) & (self.nubase["element"]==X) & (self.nubase["s"]==state)].tolist()
@@ -370,7 +370,7 @@ class NUBASE():
 				else:
 					data = 0
 					try:
-						if value == 'excitation_energy_err': 
+						if value == 'excitation_energy': 
 							data = float(str(self.nubase.iloc[idx]['excitation_energy_err']).strip('#'))
 					except(Exception, TypeError) as err:
 						print(f"(TypeError in get_value for A={A}, X={X}): {err}")
@@ -787,8 +787,7 @@ class MRToFIsotope(MRToFUtils):
 # - Mass Excess ISOLTRAP: {self.me_isotope:.1f}({self.me_isotope_err:.1f})keV\n\
 # - Mass Excess {self.ame_version}: {(self.m_isotope_AME-self.A)*self.u:.1f}({self.m_isotope_AME_err:.1f})keV\n\
 # - Mass Difference ISOLTRAP-{self.ame_version}: {abs(self.me_isotope)-abs((self.m_isotope_AME-self.A)*self.u):.1f}keV\n\
-######################\n\
-				")
+######################")
 	
 	def calc_exc_energy(self, file_isotope='', file_ref1='', file_ref2='',
 						t_isotope='', t_ref1='', t_ref2='',
@@ -837,8 +836,7 @@ class MRToFIsotope(MRToFUtils):
 # - Excitation energy ISOLTRAP: {self.exc_energy:.1f}({self.exc_energy_err:.1f})keV\n\
 # - Excitation energy NUBASE: {self.exc_energy_NUBASE:.1f}({self.exc_energy_NUBASE_err:.1f})keV\n\
 # - Energy Difference ISOLTRAP-{self.nubase_version}: {abs(self.exc_energy)-abs(self.exc_energy_NUBASE):.1f}keV\n\
-######################\n\
-				")
+######################")
 	
 	def store_result(self, results_file, overwrite = False, tags=""):
 		'''
