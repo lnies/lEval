@@ -83,9 +83,14 @@ def simple_error_plt(y, y_err, x='', x_labels='', \
 	# Loop through list of arrays passed
 	twins = []
 	for i in np.arange(0,len(y),1):
+		# If x_labels are passed
+		if len(x_labels) != 0:
+			x_plot = np.arange(0,len(x_labels),1)
+		else:
+			x_plot = x[i]
 		#
 		if i == 0:
-			ax.errorbar(x[i], y[i], y_err[i],
+			ax.errorbar(x_plot, y[i], y_err[i],
 					   fmt='o', color=colors['Jo-s_favs'][colors_keys[i]], zorder = 2, 
 					   label=label[i], 
 					   fillstyle='full', mfc="black", linewidth=2, ms =10
@@ -106,7 +111,7 @@ def simple_error_plt(y, y_err, x='', x_labels='', \
 				twins.append(ax)
 				color = colors['Jo-s_favs'][colors_keys[i]]
 
-			twins[i-1].errorbar(x[i], y[i], y_err[i],
+			twins[i-1].errorbar(x_plot, y[i], y_err[i],
 				   fmt='o', color=color, zorder = 2, 
 				   label=label[i], 
 				   fillstyle='full', mfc=color, linewidth=2, ms =10
@@ -130,8 +135,10 @@ def simple_error_plt(y, y_err, x='', x_labels='', \
 
 	if ref_value is not None and ref_err is not None:
 		# Error band
-		ax.fill_between(x[0], ref_value-ref_err, ref_value+ref_err, facecolor='0.5', alpha=0.5,
-				label = ref_legend_label)
+		if len(x_labels) != 0:
+			x_plot = np.arange(0,len(x_labels),1)
+			ax.fill_between(x_plot, ref_value-ref_err, ref_value+ref_err, facecolor='0.5', alpha=0.5,
+					label = ref_legend_label)
 
 	# plt.axhspan(ref_value-ref_err, ref_value+ref_err, facecolor='0.5', alpha=0.5)
 
@@ -1104,14 +1111,14 @@ class Peaks:
 		ax_y.xaxis.set_label_position('top')
 		#
 		plt.show()
-		
+
 class softCool(Peaks, ProcessorBase):
 	"""
 	Class for performing software cooling on 2D MR-ToF MS Data
 		df_file: dataframe containing the converted .lst content 
 		Inherits functionality from the peak finder 
 	"""
-	def __init__(self, file_list):
+	def __init__(self, files='', df=''):
 		"""
 		Class for performing software cooling on 2D MR-ToF MS Data
 		Parameters:
@@ -1125,10 +1132,17 @@ class softCool(Peaks, ProcessorBase):
 			# self.pars = {}
 			# self.df_dict = {}
 			# self.step = 0
-		self.files = file_list
-		# Read data
-		for f in self.files:
-			self.df_dict[f] = pd.read_csv(f)
+		#
+		self.file_passed = False
+		if files != '' and not isinstance(df, pd.DataFrame):
+			self.files = file_list
+			self.file_passed = True
+			# Read data
+			for f in self.files:
+				self.df_dict[f] = pd.read_csv(f)
+		if files == '' and isinstance(df, pd.DataFrame):
+			# Read data
+			self.df_dict['df'] = df
 		#    
 		self.corr_factors = []
 		self.chunk_size = 10
@@ -1148,7 +1162,10 @@ class softCool(Peaks, ProcessorBase):
 			self.__initial_align(tof, tof_cut_left, tof_cut_right)
 			# 
 		# Sum all files
-		self.file = self.add_all(to_csv=False)
+		if self.file_passed:
+			self.file = self.add_all(to_csv=False)
+		else:
+			self.file = self.df_dict['df']
 		#
 		self.coolfile = self.file.copy(deep=True) # copy for storing the cooled spectrum
 		
@@ -1186,7 +1203,31 @@ class softCool(Peaks, ProcessorBase):
 			if self.verbose > 0:
 				print(f"Applied initial ToF correction: {weighted_average_tof - averages[i]} to file {f}.")
 			i += 1
-			
+	
+	def moving_average(self, x, N):
+		"""
+		Moving average filter for input array x with filter length N.
+		"""	
+		x_averaged = [
+			# Normal case away from the edges
+			1/(N-1) * np.sum(x[int(i-(N-1)/2):int(i+(N-1)/2)])
+			if (i-(N-1)/2) >= 0 and (i+(N-1)/2) <= len(x)
+			# If around the edges
+			else
+				# Left edge
+				1/(N) * np.sum(x[int(0):int(N)]) 
+				if (i-(N-1)/2) < 0
+				# Right edge
+				else
+				1/(N) * np.sum(x[int(len(x)-N):int(len(x))]) 
+			# For every element inf the array
+			for 
+			i in 
+			np.arange(0, len(x), 1)
+		]
+		#
+		return x_averaged
+
 	def calc_corr_factors(self, df, tof_cut, chunk_size=10, method="mean"):
 		"""
 		Function for calculating correction factors
@@ -1194,16 +1235,28 @@ class softCool(Peaks, ProcessorBase):
 		df_cut = df[(df.tof > tof_cut[0]) & (df.tof < tof_cut[1])]
 		self.chunk_size = int(chunk_size)
 		#
-		if method=="mean":
+		if method=="mean" or "moving-average":
 			self.corr_factors = [
-				 np.mean(sublist.tof) 
-				 for sublist  
-				 in 
-					[
-						 df_cut[(df_cut.sweep >= i) & (df_cut.sweep < i+self.chunk_size)]
-						 for i 
-						 in range(0,int(df.sweep.iloc[-1]), self.chunk_size)
-					]
+				# Take mean of slice through sweeps with tif cut 
+				np.mean(sublist.tof) 
+				for sublist  
+				in 
+				[
+					# Apply the sweeps cut
+					df_cut[(df_cut.sweep >= i) & (df_cut.sweep < i+self.chunk_size)]
+					# if the cut is not empty
+					if len(df_cut[(df_cut.sweep >= i) & (df_cut.sweep < i+self.chunk_size)]) != 0
+					# else return a larger slice through the sweeps
+					else 
+						# If away from the edges
+						df_cut[(df_cut.sweep >= i-10) & (df_cut.sweep < i+10+self.chunk_size)]
+						if i-10 >= 0
+						# Else take slice through the beginning of file
+						else 
+						df_cut[(df_cut.sweep >= 0) & (df_cut.sweep < 20+self.chunk_size)]
+					for i 
+					in range(0,int(df.sweep.iloc[-1])+1, self.chunk_size)
+				]
 			]
 		if method=="median":
 			self.corr_factors = [
@@ -1213,7 +1266,7 @@ class softCool(Peaks, ProcessorBase):
 					[
 						 df_cut[(df_cut.sweep >= i) & (df_cut.sweep < i+self.chunk_size)]
 						 for i 
-						 in range(0,int(df.sweep.iloc[-1]), self.chunk_size)
+						 in range(0,int(df.sweep.iloc[-1])+1, self.chunk_size)
 					]
 			]
 		if method=="average":
@@ -1224,13 +1277,13 @@ class softCool(Peaks, ProcessorBase):
 					[
 						 df_cut[(df_cut.sweep >= i) & (df_cut.sweep < i+self.chunk_size)]
 						 for i 
-						 in range(0,int(df.sweep.iloc[-1]), self.chunk_size)
+						 in range(0,int(df.sweep.iloc[-1])+1, self.chunk_size)
 					]
 			]
 
 	def cool(self, tof, tof_cut_left=300, tof_cut_right=300, method="mean", chunk_size=10, 
 			 post_cool = False, to_csv = False, initial_align = False, use_global_mean = False,
-			 align_with = 0,
+			 align_with = 0, moving_average_N = 0,
 			 verbose = 0):
 		"""
 		Routine for performing the cooling
@@ -1238,10 +1291,14 @@ class softCool(Peaks, ProcessorBase):
 			- tof: time-of-flight to calculate the correcetion factors around
 			- tof_cut_left: left tof cut -> tof-tof_cut_left
 			- tof_cut_right: right tof cut -> tof+tof_cut_right
-			- method: 'mean', 'median', 'average'; to calculate correction value for chunk
+			- method: 'mean', 'median', 'average', 'moving_average'; to calculate correction value for chunk
+			- moving_average_N: moving average length is applied to calculating the correction factors,
+							  chunk size is automatically set to 1 
 			- post_cool: set true for 2nd and more cooling interations
 			- initial_align: whether to initially align all files based on a global mean
 			- to_csv: if file name givem, saved as csv
+		Return:
+			- Dataframe with cooled ToF
 		"""
 		#
 		self.verbose = verbose
@@ -1256,7 +1313,17 @@ class softCool(Peaks, ProcessorBase):
 		#
 		self.chunk_size = chunk_size
 		tof_cut = [tof-tof_cut_left, tof+tof_cut_right]
+		# If moving average, set chunk size to the size of one sweep to calculate the "signal"
+		# 	correction factors now represent the signal 
+		if method == 'moving-average':
+			self.chunk_size = 1
 		self.calc_corr_factors(df_to_cool, tof_cut, self.chunk_size)
+		# print(self.corr_factors)
+
+		# If moving average, apply moving average filter to "signal"
+		if method == 'moving-average':
+			self.corr_factors = self.moving_average(self.corr_factors, moving_average_N)
+			# print(self.corr_factors)
 		# print(f"Length correction factors: {len(self.corr_factors)}")
 		# print(f"Length chunk sizes: {len(range(0,int(df_to_cool.sweep.iloc[-1]), int(self.chunk_size)))}")
 		
@@ -1265,22 +1332,21 @@ class softCool(Peaks, ProcessorBase):
 			mean_tof = np.mean(df_to_cool[(df_to_cool.tof > tof_cut[0]) & (df_to_cool.tof < tof_cut[1])].tof)
 		else:
 			mean_tof = self.corr_factors[align_with]
-		#
+		print(f"Len Corr. Factors: {len(self.corr_factors)}")
+		
 		cooled_tofs = [
-			[
-				# print(cooled.corr_factors[j[1]], j[1])
-				row - self.corr_factors[j[1]] + mean_tof
-				for row 
-				in j[0]
-			]
-			for j 
-			in
-			[
-				 [df_to_cool[(df_to_cool.sweep >= i) & (df_to_cool.sweep < i+self.chunk_size)].tof, int(i/self.chunk_size)]
-				 for i 
-				 in range(0,int(df_to_cool.sweep.iloc[-1]), self.chunk_size)
-			 ]
+			df_to_cool[(df_to_cool.sweep >= i) & (df_to_cool.sweep < i+self.chunk_size)].tof - self.corr_factors[int(i/self.chunk_size)] + mean_tof
+			# if (self.corr_factors[i] > mean_tof - 10000) 
+			# else 
+			# df_to_cool[(df_to_cool.sweep >= i) & (df_to_cool.sweep < i+self.chunk_size)].tof
+			for i 
+			in range(0,int(df_to_cool.sweep.iloc[-1])+1, self.chunk_size)
+			# in range(0, len(self.corr_factors), 1)
 		]
+
+		print(f"Len cooled ToFs: {len(cooled_tofs)}")
+		print(f"Len hstack cooled ToFs: {len(np.hstack(cooled_tofs))}")
+		# print(np.hstack(cooled_tofs))
 		# print(self.coolfile)
 		# print(self.coolfile.sweep.tolist())
 		# print(f"Length cooled tofs: {[len(tofs) for tofs in cooled_tofs]}, sum: {sum([len(tofs) for tofs in cooled_tofs])}")
@@ -1318,7 +1384,7 @@ class softCool(Peaks, ProcessorBase):
 		# Plot unbinned and un-corrected data
 		ax0.plot(tof, sweep, 'o', alpha=0.05, ms=2, label='unbinned data')
 		# Plot correction factors
-		y_corr = range(0,int(self.file.sweep.iloc[-1]), self.chunk_size)
+		y_corr = range(0,len(self.corr_factors)*self.chunk_size, self.chunk_size)
 		x_corr = self.corr_factors
 		ax0.plot(x_corr, y_corr, c='r', linewidth=1, zorder=3)
 		# Plot corrected data
@@ -1326,7 +1392,7 @@ class softCool(Peaks, ProcessorBase):
 		sweep = self.coolfile.sweep
 		ax1.plot(tof, sweep, 'o', alpha=0.05, ms=2, label='unbinned data')
 		if self.post_cool:
-			y_corr = range(0,int(self.coolfile.sweep.iloc[-1]), self.chunk_size)
+			y_corr = range(0,len(self.corr_factors), self.chunk_size)
 			x_corr = self.corr_factors
 			ax1.plot(x_corr, y_corr, c='r', linewidth=1, zorder=3)
 		#
@@ -1517,11 +1583,11 @@ class ToFExtrapolation:
 		y_label = ['Time-of-Flight [ns]', 'Time-of-Flight [ns]', 'Time-of-Flight [ns]']
 		#
 		simple_error_plt(y=y, y_err=y_err, x=[self.x_isotope_time for i in range(3)], label = label,
-                 x_label = "Time", y_label = y_label, title = "2000revs Files",
-                 ref_value = abs(self.result_w_correction.me_isotope)-abs((self.result_w_correction.m_isotope_AME-self.result_w_correction.A)*self.result_w_correction.u),
-                 ref_err=self.result_w_correction.me_isotope_err,
-                 # ref_err=calc.get_value('105In', 'mass_excess', 'error'),
-                 ref_legend_label='ISOLTRAP21 - AME20 [keV]',
-                 x_share = False,
-                )
+				 x_label = "Time", y_label = y_label, title = "2000revs Files",
+				 ref_value = abs(self.result_w_correction.me_isotope)-abs((self.result_w_correction.m_isotope_AME-self.result_w_correction.A)*self.result_w_correction.u),
+				 ref_err=self.result_w_correction.me_isotope_err,
+				 # ref_err=calc.get_value('105In', 'mass_excess', 'error'),
+				 ref_legend_label='ISOLTRAP21 - AME20 [keV]',
+				 x_share = False,
+				)
 
