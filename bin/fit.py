@@ -1468,7 +1468,7 @@ class hyperEmg(FitMethods):
 		ylims = plt.ylim()
 		if log:
 			plt.yscale("log")
-			plt.ylim(0.1,2*ylims[1])
+			plt.ylim(0.8,2*ylims[1])
 
 		# Zoom in on found peaks
 		if self.peaks.n_peaks != 0:
