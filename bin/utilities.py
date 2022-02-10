@@ -53,7 +53,7 @@ def custom_colors():
 
 def simple_error_plt(y, y_err, x='', x_labels='', \
 					 label = ["ISOLTRAP"], x_label='', y_label=[''], title='', \
-					 ref_value=None, ref_err=None, ref_legend_label='AME20 Error',
+					 ref_value=None, ref_err=None, ref_legend_label='AME20 Error', ref_axis=0,
 					 x_share = False,
 					 ):
 	'''
@@ -136,9 +136,17 @@ def simple_error_plt(y, y_err, x='', x_labels='', \
 	if ref_value is not None and ref_err is not None:
 		# Error band
 		if len(x_labels) != 0:
+			# 
 			x_plot = np.arange(0,len(x_labels),1)
-			ax.fill_between(x_plot, ref_value-ref_err, ref_value+ref_err, facecolor='0.5', alpha=0.5,
-					label = ref_legend_label)
+			if ref_axis == 0:
+				ax.fill_between(x_plot, ref_value-ref_err, ref_value+ref_err, facecolor='0.5', alpha=0.5,
+						label = ref_legend_label)
+				ax.plot(x_plot, [ref_value for value in x_plot], color='grey')
+			else:
+				twins[ref_axis-1].fill_between(x_plot, ref_value-ref_err, ref_value+ref_err, facecolor='0.5', alpha=0.5,
+						label = ref_legend_label)
+				twins[ref_axis-1].plot(x_plot, [ref_value for value in x_plot], color='grey')
+
 
 	# plt.axhspan(ref_value-ref_err, ref_value+ref_err, facecolor='0.5', alpha=0.5)
 
@@ -1134,7 +1142,7 @@ class softCool(Peaks, ProcessorBase):
 		#
 		self.file_passed = False
 		if files != '' and not isinstance(df, pd.DataFrame):
-			self.files = file_list
+			self.files = files
 			self.file_passed = True
 			# Read data
 			for f in self.files:
@@ -1209,7 +1217,7 @@ class softCool(Peaks, ProcessorBase):
 		"""	
 		x_averaged = [
 			# Normal case away from the edges
-			1/(N-1) * np.sum(x[int(i-(N-1)/2):int(i+(N-1)/2)])
+			1/(N-1) * np.sum(x[int(i-(N-1)/2):int(i+(N-1)/2)]) 
 			if (i-(N-1)/2) >= 0 and (i+(N-1)/2) <= len(x)
 			# If around the edges
 			else
@@ -1236,8 +1244,11 @@ class softCool(Peaks, ProcessorBase):
 		#
 		if method=="mean" or "moving-average":
 			self.corr_factors = [
-				# Take mean of slice through sweeps with tif cut 
+				# Take mean of slice through sweeps with tof cut 
 				np.mean(sublist.tof) 
+				if len(sublist.tof) != 0
+				else 
+				0 
 				for sublist  
 				in 
 				[
@@ -1248,13 +1259,13 @@ class softCool(Peaks, ProcessorBase):
 					# else return a larger slice through the sweeps
 					else 
 						# If away from the edges
-						df_cut[(df_cut.sweep >= i-10) & (df_cut.sweep < i+10+self.chunk_size)]
-						if i-10 >= 0
+						df_cut[(df_cut.sweep >= i-50) & (df_cut.sweep < i+50+self.chunk_size)]
+						if i-50 >= 0
 						# Else take slice through the beginning of file
 						else 
-						df_cut[(df_cut.sweep >= 0) & (df_cut.sweep < 20+self.chunk_size)]
+						df_cut[(df_cut.sweep >= 0) & (df_cut.sweep < 50+self.chunk_size)]
 					for i 
-					in range(0,int(df.sweep.iloc[-1])+1, self.chunk_size)
+					in range(int(df.sweep.iloc[0]),int(df.sweep.iloc[-1])+1, self.chunk_size)
 				]
 			]
 		if method=="median":
@@ -1334,12 +1345,12 @@ class softCool(Peaks, ProcessorBase):
 		print(f"Len Corr. Factors: {len(self.corr_factors)}")
 		
 		cooled_tofs = [
-			df_to_cool[(df_to_cool.sweep >= i) & (df_to_cool.sweep < i+self.chunk_size)].tof - self.corr_factors[int(i/self.chunk_size)] + mean_tof
+			df_to_cool[(df_to_cool.sweep >= i) & (df_to_cool.sweep < i+self.chunk_size)].tof - self.corr_factors[int(i/self.chunk_size)-int(df_to_cool.sweep.iloc[0])] + mean_tof
 			# if (self.corr_factors[i] > mean_tof - 10000) 
 			# else 
 			# df_to_cool[(df_to_cool.sweep >= i) & (df_to_cool.sweep < i+self.chunk_size)].tof
 			for i 
-			in range(0,int(df_to_cool.sweep.iloc[-1])+1, self.chunk_size)
+			in range(int(df_to_cool.sweep.iloc[0]),int(df_to_cool.sweep.iloc[-1])+1, self.chunk_size)
 			# in range(0, len(self.corr_factors), 1)
 		]
 
@@ -1383,7 +1394,7 @@ class softCool(Peaks, ProcessorBase):
 		# Plot unbinned and un-corrected data
 		ax0.plot(tof, sweep, 'o', alpha=0.05, ms=2, label='unbinned data')
 		# Plot correction factors
-		y_corr = range(0,len(self.corr_factors)*self.chunk_size, self.chunk_size)
+		y_corr = range(int(self.coolfile.sweep.iloc[0]),int(self.coolfile.sweep.iloc[0])+len(self.corr_factors)*self.chunk_size, self.chunk_size)
 		x_corr = self.corr_factors
 		ax0.plot(x_corr, y_corr, c='r', linewidth=1, zorder=3)
 		# Plot corrected data
@@ -1391,7 +1402,7 @@ class softCool(Peaks, ProcessorBase):
 		sweep = self.coolfile.sweep
 		ax1.plot(tof, sweep, 'o', alpha=0.05, ms=2, label='unbinned data')
 		if self.post_cool:
-			y_corr = range(0,len(self.corr_factors), self.chunk_size)
+			y_corr = range(int(self.coolfile.sweep.iloc[0]),int(self.coolfile.sweep.iloc[0])+len(self.corr_factors)*self.chunk_size, self.chunk_size)
 			x_corr = self.corr_factors
 			ax1.plot(x_corr, y_corr, c='r', linewidth=1, zorder=3)
 		#
