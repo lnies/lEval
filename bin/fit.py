@@ -141,7 +141,7 @@ class FitMethods():
 	
 	def get_binning(self, bins=1):
 		"""
-		Adapts binning to multiples of 0.8ns, assuming that 0.8ns was used to take data (to common case)
+		Adapts binning to multiples of 0.8ns, assuming that 0.8ns was used to take data (the common case)
 		"""
 		# Get min and max tof from data frame
 		self.bins = bins
@@ -314,40 +314,6 @@ class FitMethods():
 			self.Var_dict[row['var']] = row['value']
 		#
 		return xm, y_val
-
-
-# def read_fit(path_to_file):
-# 	meta_data_keys = ["range", "swpreset", "cycles", "cmline0", "caloff", "calfact", "time_patch",
-# 					  "fit_function", "binning", "xmin", "xmax", "numerical_peak", "numerical_FWHM", 
-# 					  "numerical_FWHM_left", "numerical_FWHM_right"]
-
-# 	file_number = re.split('In_run_|_',path_to_file)[3]
-# 	# Extract fit parameters and save them in dict 
-# 	sub_d = {
-# 		'file_number': file_number,
-# 		'species': re.split('In_run_|revs|_',path_to_file)[4],
-# 		'n_revs': re.split('In_run_|revs|_',path_to_file)[5]
-# 	}
-# 	#
-
-# 	with open(path_to_file,'rb') as fit_file:
-# 		mapped_file = mmap.mmap(fit_file.fileno(), 0, access=mmap.ACCESS_READ)
-# 		for key in meta_data_keys:
-# 			try:
-# 				mapped_file.seek(mapped_file.find(f'{key}'.encode('ascii')))
-# 				meta_data = mapped_file.readline().strip('\r\n'.encode('ascii')).decode('ascii')
-# 				sub_d[key] = re.split('=',meta_data)[1]
-# 			except: 
-# 				continue
-# 		# Find start of fit data 
-# 		for num, line in enumerate(fit_file, 1):
-# 			if '[RESULTS-TABLE]'.encode('ascii') in line:
-# 				header_row =  num
-# 		# read fit 
-# 		df = pd.read_csv(path_to_file, delimiter=" ", header=header_row)
-# 		sub_d['fit'] = df
-
-# 	return sub_d
 
 class Gauss(FitMethods):
 	"""
@@ -1008,6 +974,8 @@ class hyperEmg(FitMethods):
 		# self.pos_funct = '1/(2*@3)*exp(1/(2*@3)*(2*@1+(1/@3)*@2^2-2*@0))*TMath::Erfc((@1+(1/@3)*@2^2-@0)/(TMath::Sqrt(2)*@2))'
 		# self.neg_funct = '1/(2*@3)*exp(1/(2*@3)*(2*@1+(1/@3)*@2^2-2*@0))*TMath::Erfc((@1+(1/@3)*@2^2-@0)/(TMath::Sqrt(2)*@2))'
 		#
+		#
+		self.params = {}
 		self.RooRealVar_dict = {}
 		self.RooGenericPdf_dict = {}
 		if file_path == False: 
@@ -1144,12 +1112,13 @@ class hyperEmg(FitMethods):
 			comp+=1
 		return funct[:-1] # cut away last character which is a "+"
 		
-	def constraints_from_file(self, file, params_to_fix):
+	def constraints_from_file(self, file, params_to_fix, for_template_fit=True):
 		'''
 		Loads and sets constraints for fit from fit file
 		Parameters:
 			- file: fit file to be loaded
 			- params_to_fix: array of strings of parameters to fix
+			- for_template_fit: also stores parameters and dict for template fitting
 		'''
 		#
 		fitfromfile = FitToDict(file)
@@ -1161,6 +1130,7 @@ class hyperEmg(FitMethods):
 		for idx,row in fitfromfile.fit['RESULTS-TABLE'].iterrows():
 			if row['var'] in params_to_fix:
 				self.limits[row['var']] = [row['value'], row['value'], row['value']]
+				self.params[row['var']] = row['value']
 
 	def call_pdf(self, xmin, xmax, dimensions = [1,2], n_comps = 1, bins = 1, limits=False):
 		"""
@@ -1458,6 +1428,10 @@ class hyperEmg(FitMethods):
 		# self.RooRealVar_dict["const_bck"] = RooRealVar("const_bck", "const_bck", self.limits["const_bck"][0], self.limits["const_bck"][1], self.limits["const_bck"][2])
 		# self.RooGenericPdf_dict["const_bck"] = RooPolynomial("const_bck","const_bck", self.RooRealVar_dict['x'], RooArgList())
 		
+		# Get parameters for template fitting
+		if len(params) == 0:
+			params = self.params
+
 		# Define Gaussian components for the fit
 		for i in range(0,n_comps,1):
 			var_name = f"mu{i}"
