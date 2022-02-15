@@ -998,8 +998,12 @@ class hyperEmg(FitMethods):
 		#
 		self.fit_func_name = "hyperEmg"
 		# JLU-GSI group definition
+		# ground state 
 		self.pos_funct = '1/(2*@3)*exp((@2/(TMath::Sqrt(2)*@3))^2-(@0-@1)/@3)*TMath::Erfc(@2/(TMath::Sqrt(2)*@3)-(@0-@1)/(TMath::Sqrt(2)*@2))'
 		self.neg_funct = '1/(2*@3)*exp((@2/(TMath::Sqrt(2)*@3))^2+(@0-@1)/@3)*TMath::Erfc(@2/(TMath::Sqrt(2)*@3)+(@0-@1)/(TMath::Sqrt(2)*@2))'
+		# isomeric states
+		self.pos_funct_on_gs = '1/(2*@3)*exp((@2/(TMath::Sqrt(2)*@3))^2-(@0-(@1+@4))/@3)*TMath::Erfc(@2/(TMath::Sqrt(2)*@3)-(@0-(@1+@4))/(TMath::Sqrt(2)*@2))'
+		self.neg_funct_on_gs = '1/(2*@3)*exp((@2/(TMath::Sqrt(2)*@3))^2+(@0-(@1+@4))/@3)*TMath::Erfc(@2/(TMath::Sqrt(2)*@3)+(@0-(@1+@4))/(TMath::Sqrt(2)*@2))'
 		# Wikipedia definition
 		# self.pos_funct = '1/(2*@3)*exp(1/(2*@3)*(2*@1+(1/@3)*@2^2-2*@0))*TMath::Erfc((@1+(1/@3)*@2^2-@0)/(TMath::Sqrt(2)*@2))'
 		# self.neg_funct = '1/(2*@3)*exp(1/(2*@3)*(2*@1+(1/@3)*@2^2-2*@0))*TMath::Erfc((@1+(1/@3)*@2^2-@0)/(TMath::Sqrt(2)*@2))'
@@ -1014,18 +1018,46 @@ class hyperEmg(FitMethods):
 	def pos_func(self, x, mu, sigma, ptau):
 		"""
 		Analytical function for positive Emg components
+		Parameters:
+			-x, mu, sigma, ntau: components of Emg function
 		"""
 		# JLU-GSI definition
 		return 1/(2*ptau)*np.exp((sigma/(math.sqrt(2)*ptau))**2-(x-mu)/ptau)*sc.special.erfc(sigma/(math.sqrt(2)*ptau)-(x-mu)/(math.sqrt(2)*sigma))
+		# Wikipedia definition
+		# return 1/(2*ptau)*np.exp((1/(2*ptau))(2*mu+(sigma**8)/(ptau)-2*x))*sc.special.erfc((mu+(1/ptau)*sigma**2-x)/(1.4142*sigma))
+	
+	def pos_func_on_gs(self, x, mu, sigma, ptau, exc_energy):
+		"""
+		Analytical function for positive Emg components
+		Parameters:
+			-x, mu, sigma, ntau: components of Emg function
+			-exc_energy: routine returns function with location of isomer build on ground state: mu = mu0 + E
+		"""
+		# JLU-GSI definition
+		return 1/(2*ptau)*np.exp((sigma/(math.sqrt(2)*ptau))**2-(x-(mu+exc_energy))/ptau)*sc.special.erfc(sigma/(math.sqrt(2)*ptau)-(x-(mu+exc_energy))/(math.sqrt(2)*sigma))
 		# Wikipedia definition
 		# return 1/(2*ptau)*np.exp((1/(2*ptau))(2*mu+(sigma**8)/(ptau)-2*x))*sc.special.erfc((mu+(1/ptau)*sigma**2-x)/(1.4142*sigma))
 
 	def neg_func(self, x, mu, sigma, ntau):
 		"""
 		Analytical function for negative Emg components
+		Parameters:
+			-x, mu, sigma, ntau: components of Emg function
 		"""
 		# JLU-GSI definition
 		return 1/(2*ntau)*np.exp((sigma/(math.sqrt(2)*ntau))**2+(x-mu)/ntau)*sc.special.erfc(sigma/(math.sqrt(2)*ntau)+(x-mu)/(math.sqrt(2)*sigma))
+		# Wikipedia definition
+		# return 1/(2*ntau)*np.exp((1/(2*ntau))(2*mu+(sigma**8)/(ntau)-2*x))*sc.special.erfc((mu+(1/ntau)*sigma**2-x)/(1.4142*sigma))
+
+	def neg_func_on_gs(self, x, mu, sigma, ntau, exc_energy):
+		"""
+		Analytical function for negative Emg components
+		Parameters:
+			-x, mu, sigma, ntau: components of Emg function
+			-exc_energy: routine returns function with location of isomer build on ground state: mu = mu0 + E
+		"""
+		# JLU-GSI definition
+		return 1/(2*ntau)*np.exp((sigma/(math.sqrt(2)*ntau))**2+(x-(mu+exc_energy))/ntau)*sc.special.erfc(sigma/(math.sqrt(2)*ntau)+(x-(mu+exc_energy))/(math.sqrt(2)*sigma))
 		# Wikipedia definition
 		# return 1/(2*ntau)*np.exp((1/(2*ntau))(2*mu+(sigma**8)/(ntau)-2*x))*sc.special.erfc((mu+(1/ntau)*sigma**2-x)/(1.4142*sigma))
 
@@ -1242,6 +1274,144 @@ class hyperEmg(FitMethods):
 			self.Var_dict[key] = self.RooRealVar_dict[f'{key}'].getValV()
 
 		return [self.this_roohist, self.roodefs, self.this_pdf, self.my_name, self.spl_draw, self.rooCompon, self.fit_results]	
+	
+	def call_pdf_isomer_as_exc_energy(self, xmin, xmax, dimensions = [1,2], n_comps = 2, bins = 1, limits=False):
+		"""
+		Setup Variable, Parameters and PDF and performs fitting of the PDF to ROI data.
+		:param roi_hist: histogram to fit
+		:param xmin: range min for the fit
+		:param xmax: range max for the fit
+		:dimensions: array with number of negative and positive components to the hyper-EMG
+		:n_comps: number of species withing fit range
+		:bins: binning for the histogram to be fitted
+		:return list: containing all relevant information about the ROI histogram, PDF, parameters,
+					  PDF components and fit results
+		"""
+		# Convert histogram
+		self.bins = bins
+		self.binning = self.get_binning(bins=self.bins)
+		self.n_comps = n_comps
+		self.hist = self.lst2roothist(self.lst_file, bins=1)
+		# Test dimension of limits
+		self.xmin = xmin
+		self.xmax = xmax
+		if isinstance(xmin, list):
+			print("(FIT_LUKAS::hyperEmg::call_pdf): Multiple fit-regions not supported in this fit function")
+			return 0
+		#
+		self.compose_title_unit(self.hist.GetXaxis().GetTitle())
+
+		# Initialize limits
+		if not limits:
+			self.init_limits()
+		#  
+		else:
+			# If limits are passed, save them in dict
+			# Careful! This overwrite the constraints set by constraints_from_file
+			for limit in limits:
+				self.limits[limit] = limits[limit]
+		# Fill variable dictionary:
+		self.RooRealVar_dict = {
+			'x': RooRealVar("x", self.rootitle, self.xmin, self.xmax, self.roounit)
+		}
+		# Constant background
+		# self.RooRealVar_dict["const_bck"] = RooRealVar("const_bck", "const_bck", self.limits["const_bck"][0], self.limits["const_bck"][1], self.limits["const_bck"][2])
+		# self.RooGenericPdf_dict["const_bck"] = RooPolynomial("const_bck","const_bck", self.RooRealVar_dict['x'], RooArgList())
+		
+		# Define Gaussian components for the fit
+		# Shared by all components
+		self.RooRealVar_dict["sigma"] = RooRealVar("sigma", "sigma", self.limits["sigma"][0], self.limits["sigma"][1], self.limits["sigma"][2])
+		# for ground state
+		var_name = f"mu0"
+		self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
+		# for isomers
+		for i in range(0,n_comps-1,1):
+			var_name = f"E{i}"
+			self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
+		
+		# Dimensions for Emg
+		self.dimensions = dimensions
+		# Definition of negative exponential components
+		for i in range(0,dimensions[0],1):
+			var_name = f"ntau{i}"
+			self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
+		# Definition of positive exponential components
+		for i in range(0,dimensions[1],1):
+			var_name = f"ptau{i}"
+			self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
+		# Definition of ratio factors: n-1 factors for n components. (+1 ratio for constant background)
+		n_components = n_comps * (dimensions[0] + dimensions[1]) - 1
+		for i in range(0,n_components,1):
+			var_name = f"ratio{i}"
+			self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
+		# Definition for the negative EMG components
+		for i in range(0,dimensions[0],1):
+			for j in range(0,n_comps,1):
+				pdf_name = f"nsemg{i}{j}"
+				# ground state
+				if j == 0:
+					self.RooGenericPdf_dict[pdf_name] = RooGenericPdf(pdf_name,pdf_name,self.neg_funct,
+															RooArgList(self.RooRealVar_dict['x'], 
+																	   self.RooRealVar_dict[f'mu0'], 
+																	   self.RooRealVar_dict['sigma'], 
+																	   self.RooRealVar_dict[f'ntau{i}']))
+				# isomers
+				else:
+					self.RooGenericPdf_dict[pdf_name] = RooGenericPdf(pdf_name,pdf_name,self.neg_funct_on_gs,
+															RooArgList(self.RooRealVar_dict['x'], 
+																	   self.RooRealVar_dict[f'mu0'], 
+																	   self.RooRealVar_dict['sigma'], 
+																	   self.RooRealVar_dict[f'ntau{i}'],
+																	   self.RooRealVar_dict[f'E{j-1}']))
+		# Definition for the positive EMG components
+		for i in range(0,dimensions[1],1):
+			for j in range(0,n_comps,1):
+				pdf_name = f"psemg{i}{j}"
+				# ground state 
+				if j == 0:
+					self.RooGenericPdf_dict[pdf_name] = RooGenericPdf(pdf_name,pdf_name,self.pos_funct,
+															RooArgList(self.RooRealVar_dict['x'], 
+																	   self.RooRealVar_dict[f'mu0'], 
+																	   self.RooRealVar_dict['sigma'], 
+																	   self.RooRealVar_dict[f'ptau{i}']))
+				# isomers 
+				else:
+					self.RooGenericPdf_dict[pdf_name] = RooGenericPdf(pdf_name,pdf_name,self.pos_funct_on_gs,
+															RooArgList(self.RooRealVar_dict['x'], 
+																	   self.RooRealVar_dict[f'mu0'], 
+																	   self.RooRealVar_dict['sigma'], 
+																	   self.RooRealVar_dict[f'ptau{i}'],
+																	   self.RooRealVar_dict[f'E{j-1}']))
+		# Put all pdfs together
+		all_pdfs = RooArgList()
+		for pdf in self.RooGenericPdf_dict:
+			all_pdfs.add(self.RooGenericPdf_dict[pdf])
+		# put all ratio's together
+		all_ratios = RooArgList()
+		for var in self.RooRealVar_dict:
+			m = re.search('ratio*', var)
+			if m:
+				all_ratios.add(self.RooRealVar_dict[var])
+		# Definition hyper-EMG
+		self.this_pdf = RooAddPdf('hyperEmg', 'hyperEmg', all_pdfs, all_ratios, recursiveFraction = ROOT.kFALSE)
+		# self.this_pdf = RooAddPdf('hyperEmg', 'hyperEmg', RooArgList(self.psEmg, self.nsEmg), RooArgList(self.emgratio))
+		# 
+		self.roodefs = [self.this_pdf, self.RooRealVar_dict, self.RooGenericPdf_dict]
+		self.this_roohist, self.fit_results = self.minimize(self.hist, self.xmin, self.xmax)
+
+		# THIS LINE HAS TO BE HERE FOR SOME UNKNOW REASON TO ME TO AVOID A SEG FAULT IN THE PLOT FUNCTION GOD KNOWS WHY I REALLY DON'T KNOW ANYMORE...
+		print(self.this_pdf.getVal(ROOT.RooArgSet(self.RooRealVar_dict['x'])))
+
+		# Calculate numerical position of maximum and FWHM
+		mu = self.RooRealVar_dict['mu0'].getValV()
+		sigma = self.RooRealVar_dict['sigma'].getValV()
+		self.numerical_peak, self.numerical_FWHM, self.numerical_FWHM_left, self.numerical_FWHM_right = self.find_peak_and_fwhm(mu, sigma)
+
+		# Store fit results in dict
+		for key in self.RooRealVar_dict:
+			self.Var_dict[key] = self.RooRealVar_dict[f'{key}'].getValV()
+
+		return [self.this_roohist, self.roodefs, self.this_pdf, self.my_name, self.spl_draw, self.rooCompon, self.fit_results]	
 
 	def call_pdf_by_string(self, xmin, xmax, dimensions = [1,2], n_comps = 1, bins = 1, limits=False, params={}):
 		"""
@@ -1338,9 +1508,9 @@ class hyperEmg(FitMethods):
 		print(self.Var_dict)
 
 		return [self.this_roohist, self.roodefs, self.this_pdf, self.my_name, self.spl_draw, self.rooCompon, self.fit_results]	
-
+	
 	def plot(self, bins = 1, log=False, focus=-1, from_file = False, file_out=False, silent=True, 
-			 centroids=False, components=False, carpet=False, legend=True):
+			centroids=False, components=False, carpet=False, legend=True, style='errorbar'):
 		"""  
 		Wrapper for plotting the fit and data
 			- bins: number of bins to rebin. Defaults to 1, e.g. no rebinning
@@ -1382,8 +1552,11 @@ class hyperEmg(FitMethods):
 			xm, y_val = self.load_fit(from_file)
 
 		# Plot data
-		plt.errorbar(cx - self.numerical_peak,
+		if style == 'errorbar':
+			plt.errorbar(cx - self.numerical_peak,
 					 n, n ** 0.5, fmt="ok", zorder=1, label=f"Data (bins={bins})")
+		elif style == 'hist':
+			plt.hist((xdata - self.numerical_peak), bins=self.get_binning(), color='black', label=f"Data (bins={bins})")
 
 		# Normalize values
 		integral_cut = sum(y_val) * np.diff(xm)[0]

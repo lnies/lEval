@@ -421,6 +421,12 @@ class MCDWIN887(ProcessorBase):
                 self.pars[key]['fmt'] = 'asc'
 
     def process(self, files, to_csv=True):
+        """
+        
+        """
+        #
+        self.files = files
+        #
         for i, f in enumerate(files):
             self.read(f)
             # Convert bins to tof in ns
