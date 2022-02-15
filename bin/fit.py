@@ -1558,8 +1558,12 @@ class hyperEmg(FitMethods):
 			plt.axvline(self.numerical_FWHM_right - self.numerical_peak, c='blue', linewidth=1, zorder=3)
 			# Plot center of gaussian component
 			for comp in range(0,self.n_comps,1):
-				plt.axvline(self.Var_dict[f'mu{comp}'] - self.numerical_peak, c='r', linewidth=1, zorder=3)
-
+				if f'mu{comp}' in self.Var_dict.keys():
+					plt.axvline(self.Var_dict[f'mu{comp}'] - self.numerical_peak, c='r', linewidth=1, zorder=3)
+				elif f'E{comp-1}' in self.Var_dict.keys():
+					plt.axvline(self.Var_dict[f'mu0']+self.Var_dict[f'E{comp-1}'] - self.numerical_peak, c='r', linewidth=1, zorder=3)
+				else:
+					continue
 		# Plot components
 		if components:
 			i_ratio = 0 
@@ -1615,15 +1619,15 @@ class hyperEmg(FitMethods):
 		ylims = plt.ylim()
 		if log:
 			plt.yscale("log")
-			plt.ylim(0.8,2*ylims[1])
+			plt.ylim(0.2,2*ylims[1])
 
 		# Zoom in on found peaks
 		if self.peaks.n_peaks != 0:
-			plt.xlim(self.peaks.earliest_left_base - 400 - self.numerical_peak, 
-					 self.peaks.latest_right_base + 400 - self.numerical_peak)
+			plt.xlim(self.peaks.earliest_left_base - 800 - self.numerical_peak, 
+					 self.peaks.latest_right_base + 800 - self.numerical_peak)
 			if focus != -1:
-				plt.xlim(self.peaks.pos[focus] - 600 - self.numerical_peak, 
-						 self.peaks.pos[focus] + 600 - self.numerical_peak)
+				plt.xlim(self.peaks.pos[focus] - 1200 - self.numerical_peak, 
+						 self.peaks.pos[focus] + 1200 - self.numerical_peak)
 
 		# Add axis labels
 		plt.xlabel(f'Time-of-Flight [ns] - {self.numerical_peak:.1f}ns', fontsize=20)
