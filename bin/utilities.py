@@ -682,20 +682,27 @@ class MRToFIsotope(MRToFUtils):
 			#
 			if self.state == 'm':
 				self.isomere_key = 'mu1'
+				self.doublet_key = 'E0'
 			elif self.state == 'n':
 				self.isomere_key = 'mu2'
+				self.doublet_key = 'E1'
 			else:
 				print(f"(MRToFIsotope.__init__): Unknown isomeric state '{self.state}' (only 'm', 'n').")
 				return -1
 		#
 		self.custom_gs = ''
 		self.custom_gs_err = ''
+		self.C_tof = ''
+		self.C_tof_err = ''
+		self.m_isomere = ''
+		self.m_isomere_err = ''
 
 	def __store_tofs(self, file_isotope='', file_ref1='', file_ref2='',
 						t_isotope='', t_ref1='', t_ref2='',
 						t_isotope_err='', t_ref1_err='', t_ref2_err='',
-						centroid = 'mu0',
-						tweak_tofs = [0,0,0]):
+						centroid = 'mu0', tweak_tofs = [0,0,0],
+						is_doublet = False,
+						):
 		"""
 		Stores information passed to calc_mass or calc_exc_energy and loads fit files if passed
 		"""    
@@ -708,10 +715,15 @@ class MRToFIsotope(MRToFUtils):
 			self.isotope_fit = FitToDict(file_isotope)
 			self.isotope_gs_t = float(self.isotope_fit.get_val(centroid, 'value')) + tweak_tofs[0]
 			self.isotope_gs_t_err = float(self.isotope_fit.get_val('mu0', 'error'))
-			# If isomer is passed, store isomere ToF as well
+			# If isomer is passed, store isomere ToF or ToF difference as well
 			if self.state != 'gs':
-				self.isotope_m_t = float(self.isotope_fit.get_val(self.isomere_key, 'value')) + tweak_tofs[0]
-				self.isotope_m_t_err = float(self.isotope_fit.get_val(self.isomere_key, 'error'))
+				# If doublet is passed
+				if is_doublet:
+					self.isotope_m_dt = float(self.isotope_fit.get_val(self.doublet_key, 'value')) + tweak_tofs[0]
+					self.isotope_m_dt_err = float(self.isotope_fit.get_val(self.doublet_key, 'error'))
+				else:
+					self.isotope_m_t = float(self.isotope_fit.get_val(self.isomere_key, 'value')) + tweak_tofs[0]
+					self.isotope_m_t_err = float(self.isotope_fit.get_val(self.isomere_key, 'error'))
 		# If raw ToFs and not fit files are passed, store ToFs directly
 		elif file_isotope == '' and t_isotope != '' and t_isotope_err != '':
 			self.isotope_gs_t = t_isotope + tweak_tofs[0]
@@ -720,8 +732,15 @@ class MRToFIsotope(MRToFUtils):
 			if self.state != 'gs':
 				self.isotope_gs_t = -1 
 				self.isotope_gs_t_err = -1 
-				self.isotope_m_t = t_isotope + tweak_tofs[0]
-				self.isotope_m_t_err = t_isotope_err
+				# If passed as doublet
+				if is_doublet:
+					self.isotope_m_dt = dt_isotope + tweak_tofs[0]
+					self.isotope_m_dt_err = dt_isotope_err
+				else:
+					self.isotope_m_t = t_isotope + tweak_tofs[0]
+					self.isotope_m_t_err = t_isotope_err
+
+
 		else:
 			print(f"Error input isotope")
 			return -1
@@ -735,8 +754,9 @@ class MRToFIsotope(MRToFUtils):
 			self.ref1_t = t_ref1 + tweak_tofs[1]
 			self.ref1_t_err = t_ref1_err
 		else:
-			print(f"Error input ref1")
-			return
+			if not is_doublet:
+				print(f"Error input ref1")
+				return
 		#
 		self.file_ref2 = file_ref2
 		if file_ref2 != '' and t_ref2 == '':
@@ -747,14 +767,39 @@ class MRToFIsotope(MRToFUtils):
 			self.ref2_t = t_ref2 + tweak_tofs[2]
 			self.ref2_t_err = t_ref2_err
 		else:
-			print(f"Error input ref2")
-			return
+			if not is_doublet:
+				print(f"Error input ref2")
+				return
 
 	def __print_results(self):
 		'''
 		
 		'''
 
+	def calc_exc_energy_from_doublet(self, t0, dt, m0):
+		'''
+		Calculation of excitation energy based on measured isomer/ground state doublet
+		Parameters:
+			- t0: ToF of ground state
+			- dt: ToF difference between ground state and isomer
+			- m0: Ground state mass in keV
+		Returns excitation energy in keV
+		''' 
+		# Simplified form assuming dt<<t_0
+		return 2 * dt/t0 * m0
+
+	def calc_exc_energy_err_from_doublet(self, t0, t0_err, dt, dt_err, m0, m0_err):
+		'''
+		Calculation of excitation energy error based on measured isomer/ground state doublet
+		Parameters:
+			- t0, t0_err: ToF of ground state
+			- dt, dt_err: ToF difference between ground state and isomer
+			- m0, m0_err: Ground state mass in keV
+		Returns error on excitation energy in keV
+		''' 
+		# Simplified form assuming dt<<t_0
+		return math.sqrt(dt_err**2 + ((dt * m0_err)/m0)**2) * 2 * m0/t0
+	
 	def calc_mass(self, file_isotope='', file_ref1='', file_ref2='',
 						t_isotope='', t_ref1='', t_ref2='',
 						t_isotope_err='', t_ref1_err='', t_ref2_err='',
@@ -800,9 +845,9 @@ class MRToFIsotope(MRToFUtils):
 	def calc_exc_energy(self, file_isotope='', file_ref1='', file_ref2='',
 						t_isotope='', t_ref1='', t_ref2='',
 						t_isotope_err='', t_ref1_err='', t_ref2_err='',
-						centroid = 'mu0',
-						tweak_tofs = [0,0,0],
+						centroid = 'mu0', tweak_tofs = [0,0,0],
 						custom_gs = '', custom_gs_err = '',
+						is_doublet = False,
 						print_results = False):
 		'''
 		Calculates the excitation energy for an isomeric state from either fit files in form of FitToDict objects passed to method
@@ -813,30 +858,39 @@ class MRToFIsotope(MRToFUtils):
 			- tweak_tofs: array [tof_isotope, tof_ref1, tof_ref2] that add tof to the extracted values from the fit files to tweak the mass and see influence of tof drifts
 			- custom_gs: use ground state mass passsed in [u] to calculate excitation energy. Defaults to AME value
 			- custom_gs_err: use ground state mass err passsed in [u] to calculate excitation energy. Defaults to AME value
+			- is_doublet: Whether doublet formula is to be used. Does not require reference measurements. Takes file_isotope to calculate doublet. 
 			- print_results: prints short formatted results of calculation
 		'''
 		# Store ToFs
 		self.__store_tofs(file_isotope, file_ref1, file_ref2,t_isotope, t_ref1, t_ref2, t_isotope_err, 
-							t_ref1_err, t_ref2_err, centroid, tweak_tofs)
+							t_ref1_err, t_ref2_err, centroid, tweak_tofs, is_doublet)
 		#
-		self.C_tof = self.calc_C_ToF(self.isotope_m_t, self.ref1_t, self.ref2_t)
-		self.C_tof_err = self.calc_C_ToF_err(t=self.isotope_m_t, t_err=self.isotope_m_t_err,
-													   t1=self.ref1_t, t1_err=self.ref1_t_err,
-													   t2=self.ref2_t, t2_err=self.ref2_t_err)
-		#
-		self.m_isomere = self.calc_sqrt_m(self.C_tof, self.m_ref1, self.m_ref2)**2
-		self.m_isomere_err = self.calc_m_err(self.C_tof, self.C_tof_err, 
-											   self.m_ref1, self.m_ref1_err/self.u ,
-											   self.m_ref2, self.m_ref2_err/self.u)
-		
-		self.custom_gs = custom_gs
-		self.custom_gs_err = custom_gs_err
-		if self.custom_gs == '' and self.custom_gs_err == '':
-			self.exc_energy = (self.m_isomere-self.m_isotope_AME) * self.u # [keV]
-			self.exc_energy_err = math.sqrt(self.m_isomere_err**2 + self.m_isotope_AME_err**2)
-		else:
-			self.exc_energy = (self.m_isomere-self.custom_gs) * self.u # [keV]
-			self.exc_energy_err = math.sqrt(self.custom_gs_err**2 + self.m_isomere_err**2)* self.u # [keV]
+		# Calculation of excitation energy via C_tof differences e.g. mass differences
+		if not is_doublet:
+			self.C_tof = self.calc_C_ToF(self.isotope_m_t, self.ref1_t, self.ref2_t)
+			self.C_tof_err = self.calc_C_ToF_err(t=self.isotope_m_t, t_err=self.isotope_m_t_err,
+														   t1=self.ref1_t, t1_err=self.ref1_t_err,
+														   t2=self.ref2_t, t2_err=self.ref2_t_err)
+			#
+			self.m_isomere = self.calc_sqrt_m(self.C_tof, self.m_ref1, self.m_ref2)**2
+			self.m_isomere_err = self.calc_m_err(self.C_tof, self.C_tof_err, 
+												   self.m_ref1, self.m_ref1_err/self.u ,
+												   self.m_ref2, self.m_ref2_err/self.u)
+			
+			self.custom_gs = custom_gs
+			self.custom_gs_err = custom_gs_err
+			if self.custom_gs == '' and self.custom_gs_err == '':
+				self.exc_energy = (self.m_isomere-self.m_isotope_AME) * self.u # [keV]
+				self.exc_energy_err = math.sqrt(self.m_isomere_err**2 + self.m_isotope_AME_err**2)
+			else:
+				self.exc_energy = (self.m_isomere-self.custom_gs) * self.u # [keV]
+				self.exc_energy_err = math.sqrt(self.custom_gs_err**2 + self.m_isomere_err**2)* self.u # [keV]
+		# Calculation via mass-doublet
+		else: 
+			self.exc_energy = self.calc_exc_energy_from_doublet(t0 = self.isotope_gs_t, dt = self.isotope_m_dt, m0 = self.m_isotope_AME*self.u)
+			self.exc_energy_err = self.calc_exc_energy_err_from_doublet(t0 = self.isotope_gs_t, dt = self.isotope_m_dt, m0 = self.m_isotope_AME*self.u,
+																	t0_err = self.isotope_gs_t_err, dt_err = self.isotope_m_dt_err, m0_err = self.m_isotope_AME_err,
+								  									)
 		# 
 		if print_results:
 			print(f"######################\n\
@@ -1175,10 +1229,14 @@ class softCool(Peaks, ProcessorBase):
 			self.file = self.df_dict['df']
 		#
 		self.coolfile = self.file.copy(deep=True) # copy for storing the cooled spectrum
+		# Drop empty sweeps
+		for idx in self.coolfile[self.coolfile.tof.isnull()].index:
+			self.coolfile = self.coolfile.drop(idx)
+
 		
 	def __initial_align(self, tof, tof_cut_left=300, tof_cut_right=300):
 		"""
-		
+		Aligns all input files to a weighted average ToF. Onl 
 		Parameters:
 			- file_list: array of files to be aligned with respect to each other
 		"""
@@ -1260,10 +1318,14 @@ class softCool(Peaks, ProcessorBase):
 					else 
 						# If away from the edges
 						df_cut[(df_cut.sweep >= i-50) & (df_cut.sweep < i+50+self.chunk_size)]
-						if i-50 >= 0
+						if len(df_cut[(df_cut.sweep >= i-50) & (df_cut.sweep < i+50+self.chunk_size)]) != 0 and i-50 >= 0
 						# Else take slice through the beginning of file
 						else 
-						df_cut[(df_cut.sweep >= 0) & (df_cut.sweep < 50+self.chunk_size)]
+							df_cut[(df_cut.sweep >= i-500) & (df_cut.sweep < i+500+self.chunk_size)]
+							if len(df_cut[(df_cut.sweep >= i-500) & (df_cut.sweep < i+500+self.chunk_size)]) != 0 and i-500 >= 0
+							# Else take slice through the beginning of file
+							else 
+							df_cut[(df_cut.sweep >= 0) & (df_cut.sweep < 500+self.chunk_size)]
 					for i 
 					in range(int(df.sweep.iloc[0]),int(df.sweep.iloc[-1])+1, self.chunk_size)
 				]
@@ -1600,4 +1662,3 @@ class ToFExtrapolation:
 				 ref_legend_label='ISOLTRAP21 - AME20 [keV]',
 				 x_share = False,
 				)
-
