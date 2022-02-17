@@ -1121,7 +1121,6 @@ class softCool(Peaks, ProcessorBase):
 		for idx in self.coolfile[self.coolfile.tof.isnull()].index:
 			self.coolfile = self.coolfile.drop(idx)
 
-		
 	def __initial_align(self, tof, tof_cut_left=300, tof_cut_right=300):
 		"""
 		Aligns all input files to a weighted average ToF. Onl 
@@ -1157,6 +1156,26 @@ class softCool(Peaks, ProcessorBase):
 				print(f"Applied initial ToF correction: {weighted_average_tof - averages[i]} to file {f}.")
 			i += 1
 	
+	def save_cooled_files(self):
+		"""
+		Saves applied correction factors to individual input files and stores them as filename + 'cooled' as file names 
+		"""
+		if not self.file_passed: 
+			print(f"(softCool.save_cooled_files): Data not passed as individual files. Can't apply cooling to individual files.")
+			return 0
+		# if data passed as files, go through master df and save chunks into the individual files
+		idx = 0
+		for file in self.df_dict:
+			# get length of data from original file
+			l = len(self.df_dict[file])
+			# cut master df into original file length
+			sub_df = self.coolfile[idx:idx+l].copy()
+			# reset the sweep number
+			sub_df["sweep"] = sub_df["sweep"] - sub_df["sweep"].iloc[0]
+			# store
+			sub_df.to_csv(file.split(".")[0]+"_cooled.csv", index=False)
+			idx += l
+
 	def moving_average(self, x, N):
 		"""
 		Moving average filter for input array x with filter length N.
@@ -1242,7 +1261,8 @@ class softCool(Peaks, ProcessorBase):
 			]
 
 	def cool(self, tof, tof_cut_left=300, tof_cut_right=300, method="mean", chunk_size=10, 
-			 post_cool = False, to_csv = False, initial_align = False, use_global_mean = False,
+			 post_cool = False, to_csv = False, to_file_csv = False,
+			 initial_align = False, use_global_mean = False,
 			 align_with = 0, moving_average_N = 0,
 			 verbose = 0):
 		"""
@@ -1257,6 +1277,7 @@ class softCool(Peaks, ProcessorBase):
 			- post_cool: set true for 2nd and more cooling interations
 			- initial_align: whether to initially align all files based on a global mean
 			- to_csv: if file name givem, saved as csv
+			- to_file_csv: if True, save applied cooling to each input file if files instead of df are passed
 		Return:
 			- Dataframe with cooled ToF
 		"""
@@ -1324,8 +1345,11 @@ class softCool(Peaks, ProcessorBase):
 		for idx in self.coolfile[self.coolfile.tof.isnull()].index:
 			self.coolfile = self.coolfile.drop(idx)
 
-		if to_csv != False:
+		if to_csv:
 			self.coolfile.to_csv(to_csv, index=False)
+
+		if to_file_csv:
+			self.save_cooled_files() 
 
 		# Export the cooled df
 		return self.coolfile
