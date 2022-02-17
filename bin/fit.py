@@ -147,6 +147,11 @@ class FitMethods():
 		self.bins = bins
 		minn = self.lst_file.tof.min()
 		maxx = self.lst_file.tof.max()
+		# Avoid having empty binning when maxx is equal to minn
+		if minn == maxx:
+			maxx += 1
+		#
+		# print(f"BINNING: {round((maxx-minn)/0.8/self.bins)}")
 		return round((maxx-minn)/0.8/self.bins)
 
 	def lst2roothist(self, list_file, bins=1):
@@ -1035,7 +1040,7 @@ class hyperEmg(FitMethods):
 		"""
 		return f'{R}*1/(2*{c3})*exp(({c2}/(1.4142*{c3}))^2{pol}({c0}-{c1})/{c3})*TMath::Erfc({c2}/(1.4142*{c3}){pol}({c0}-{c1})/(1.4142*{c2}))'
 
-	def build_function_string(self, dimensions = [0,1], params = {}):
+	def build_function_string(self, dimensions = [0,1], params = {}, n_comp = 0):
 		#
 		funct = ''
 		comp = 0
@@ -1070,12 +1075,29 @@ class hyperEmg(FitMethods):
 				else: 
 					temp = f"ratio{comp}"
 					ratio = f"{params[temp]}"
-			#        
+			# Define negative tau
 			if f"ntau{i}" not in params:
-				funct += self.function_string(c2 = sigma, c3=f"@{3+2*comp}", R=f"{ratio}", pol="+")+ "+"
+				ntau = f"@{3+2*comp}"
 			else:
 				temp = f"ntau{i}"
-				funct += self.function_string(c2 = sigma, c3=f"{params[temp]}", R=f"{ratio}", pol="+")+ "+"
+				ntau = f"{params[temp]}"
+			# Define mu and/or excitation energy E
+			if n_comp == 0 and f"mu0" not in params:
+				mu = '@1'
+			elif n_comp == 0 and f"mu0" in params:
+				temp = f"mu0"
+				mu = f"{params[temp]}"
+			elif n_comp > 0 and f"mu{n_comp}" in params:
+				temp = f"mu{n_comp}" 
+				mu = f"{params[temp]}"
+			# If excitation energies are passed
+			elif n_comp > 0 and f"E{n_comp-1}" in params:
+				temp = f"E{n_comp-1}"
+				mu = f"(@1+{params[temp]})"
+			else:
+				mu = '@1'
+			# Builf function
+			funct += self.function_string(c1 = mu, c2 = sigma, c3=ntau, R=f"{ratio}", pol="+")+ "+"
 			comp+=1
 		#
 		for i in range(dimensions[1]):
@@ -1104,11 +1126,29 @@ class hyperEmg(FitMethods):
 					temp = f"ratio{comp}"
 					ratio = f"{params[temp]}"
 			
+			# Define positive tau
 			if f"ptau{i}" not in params:
-				funct += self.function_string(c2 = sigma, c3=f"@{3+2*comp}", R=f"{ratio}", pol="-")+ "+"
+				ptau = f"@{3+2*comp}"
 			else:
 				temp = f"ptau{i}"
-				funct += self.function_string(c2 = sigma, c3=f"{params[temp]}", R=f"{ratio}", pol="-")+ "+"
+				ptau = f"{params[temp]}"
+			# Define mu and/or excitation energy E
+			if n_comp == 0 and f"mu0" not in params:
+				mu = '@1'
+			elif n_comp == 0 and f"mu0" in params:
+				temp = f"mu0"
+				mu = f"{params[temp]}"
+			elif n_comp > 0 and f"mu{n_comp}" in params:
+				temp = f"mu{n_comp}" 
+				mu = f"{params[temp]}"
+			# If excitation energies are passed
+			elif n_comp > 0 and f"E{n_comp-1}" in params:
+				temp = f"E{n_comp-1}"
+				mu = f"(@1+{params[temp]})"
+			else:
+				mu = '@1'
+			# Builf function
+			funct += self.function_string(c1 = mu, c2 = sigma, c3=ptau, R=f"{ratio}", pol="-")+ "+"
 			comp+=1
 		return funct[:-1] # cut away last character which is a "+"
 		
@@ -1131,6 +1171,8 @@ class hyperEmg(FitMethods):
 			if row['var'] in params_to_fix:
 				self.limits[row['var']] = [row['value'], row['value'], row['value']]
 				self.params[row['var']] = row['value']
+
+		print(self.limits, self.params)
 
 	def call_pdf(self, xmin, xmax, dimensions = [1,2], n_comps = 1, bins = 1, limits=False):
 		"""
@@ -1383,7 +1425,7 @@ class hyperEmg(FitMethods):
 
 		return [self.this_roohist, self.roodefs, self.this_pdf, self.my_name, self.spl_draw, self.rooCompon, self.fit_results]	
 
-	def call_pdf_by_string(self, xmin, xmax, dimensions = [1,2], n_comps = 1, bins = 1, limits=False, params={}):
+	def call_pdf_by_string(self, xmin, xmax, dimensions = [1,2], n_comps = 1, bins = 1, limits=False, params={}, is_doublet = False):
 		"""
 		Setup Variable, Parameters and PDF and performs fitting of the PDF to ROI data.
 		:param roi_hist: histogram to fit
@@ -1392,6 +1434,7 @@ class hyperEmg(FitMethods):
 		:dimensions: array with number of negative and positive components to the hyper-EMG
 		:n_comps: number of species withing fit range
 		:bins: binning for the histogram to be fitted
+		:is_double: if true, doublet fit is performed
 		:return list: containing all relevant information about the ROI histogram, PDF, parameters,
 					  PDF components and fit results
 		"""
@@ -1433,17 +1476,26 @@ class hyperEmg(FitMethods):
 			params = self.params
 
 		# Define Gaussian components for the fit
-		for i in range(0,n_comps,1):
-			var_name = f"mu{i}"
+		if is_doublet:
+			var_name = f"mu0"
 			self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
+		else:
+			for i in range(0,n_comps,1):
+				var_name = f"mu{i}"
+				self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
 		
 		for j in range(0,n_comps,1):
 			pdf_name = f"comp{j}"
 			# Start by building the PDF function string
-			funct = self.build_function_string(dimensions=dimensions, params=params)
+			funct = self.build_function_string(dimensions=dimensions, params=params, n_comp = j)
+			print(funct)
+			if is_doublet:
+				mu = 'mu0'
+			else:
+				mu = f'mu{j}'
 			self.RooGenericPdf_dict[pdf_name] = RooGenericPdf(pdf_name,pdf_name,funct,
 													RooArgList(self.RooRealVar_dict['x'], 
-															   self.RooRealVar_dict[f'mu{j}']))
+															   self.RooRealVar_dict[mu]))
 			#
 			# Build component ratios
 			if j < (n_comps-1): 
@@ -1478,8 +1530,6 @@ class hyperEmg(FitMethods):
 		# Store fit results in dict
 		for key in self.RooRealVar_dict:
 			self.Var_dict[key] = self.RooRealVar_dict[f'{key}'].getValV()
-
-		print(self.Var_dict)
 
 		return [self.this_roohist, self.roodefs, self.this_pdf, self.my_name, self.spl_draw, self.rooCompon, self.fit_results]	
 	
