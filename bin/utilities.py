@@ -281,48 +281,58 @@ class FitToDict:
 		self.file_path = file_path
 		# Read file
 		self.fit = self.__read(verbose)
+		if self.fit == 0:
+			print(f"(FitToDict.__init__): File at '{file_path}' does not exist.")
+			return 0
 
 	def __initialize(self, verbose = 0):
 		'''
 		PRIVATE: Init file, read the meta data into dict and save where the results table and fit values table start
 		'''
 		# open the file
-		file = open(self.file_path)
-		for line in file.readlines():
-			# Increment line counter
-			self.line_nb += 1
-			# get rid of the newline
-			line = line[:-1]
-			try:
-				# this will break if you have whitespace on the "blank" lines
-				if line:
-					# skip comment lines
-					if line[0] == '#': next
-					# this assumes everything starts on the first column
-					if line[0] == '[':
-						# strip the brackets
-						section = line[1:-1]
-						# create a new section if it doesn't already exist
-						if not section in self.fit:
-							self.fit[section] = {}
-							# Save where which section is
-							if section == 'RESULTS-TABLE':
-								self.res_table_line = self.line_nb
-							if section == 'FIT-VALUES':
-								self.fit_val_line = self.line_nb
-					else:
-						# split on first the equal sign
-						(key, val) = line.split('=', 1)
-						# create the attribute as a list if it doesn't
-						# exist under the current section, this will
-						# break if there's no section set yet
-						if not key in self.fit[section]:
-							self.fit[section][key] = val
-						# append the new value to the list
-						#sections[section][key].append(val)
-			except Exception as e:
-				if verbose > 0: 
-					print(str(e) + "line:" +line)
+		if os.path.isfile(self.file_path):
+			file = open(self.file_path)
+			for line in file.readlines():
+				# Increment line counter
+				self.line_nb += 1
+				# get rid of the newline
+				line = line[:-1]
+				try:
+					# this will break if you have whitespace on the "blank" lines
+					if line:
+						# skip comment lines
+						if line[0] == '#': next
+						# this assumes everything starts on the first column
+						if line[0] == '[':
+							# strip the brackets
+							section = line[1:-1]
+							# create a new section if it doesn't already exist
+							if not section in self.fit:
+								self.fit[section] = {}
+								# Save where which section is
+								if section == 'RESULTS-TABLE':
+									self.res_table_line = self.line_nb
+								if section == 'FIT-VALUES':
+									self.fit_val_line = self.line_nb
+						else:
+							# split on first the equal sign
+							(key, val) = line.split('=', 1)
+							# create the attribute as a list if it doesn't
+							# exist under the current section, this will
+							# break if there's no section set yet
+							if not key in self.fit[section]:
+								self.fit[section][key] = val
+							# append the new value to the list
+							#sections[section][key].append(val)
+					#
+				except Exception as e:
+					if verbose > 0: 
+						print(str(e) + "line:" +line)
+			#
+			return 1
+			#
+		else:
+			return 0 
 
 	def __read_tables(self, verbose = 0):
 		'''
@@ -350,7 +360,9 @@ class FitToDict:
 			- Dictionary with meta data, fit results, and fit values for plotting
 		'''
 		# 
-		self.__initialize()
+		init = self.__initialize()
+		if init != 1:
+			return 0
 		# read results table
 		self.__read_tables(verbose)
 		#
@@ -882,6 +894,10 @@ class Peaks:
 		# Get min and max tof from data frame
 		minn = self.file.tof.min()
 		maxx = self.file.tof.max()
+		# Avoid having empty binning when maxx is equal to minn
+		if minn == maxx:
+			maxx += 1
+		#
 		return round((maxx-minn)/0.8/bins)
 	
 	def find_peaks(self, bins=10, peak_threshold = 0.002, peak_min_distance = 5, peak_min_height = 10, peak_width_inbins = (3,100), 
