@@ -548,6 +548,8 @@ class MRToFIsotope(MRToFUtils):
 		self.ref2 = ref2 
 		self.n_revs = n_revs
 		self.state = state
+		self.states = []
+		self.Var_dict = {}
 		#
 		self.m_ref1 = self.get_value(self.ref1)
 		self.m_ref1_err = self.get_value(self.ref1,error=True)
@@ -581,10 +583,34 @@ class MRToFIsotope(MRToFUtils):
 		self.m_isomere = ''
 		self.m_isomere_err = ''
 
+	def __infer_states(self, fit_df):
+		"""
+		Infer states from number of peaks passed
+		"""
+		for idx,row in fit_df.iterrows():
+			self.Var_dict[row['var']] = row['value']
+		#
+		dic = self.Var_dict
+		for key in dic:
+			d = {}
+			if(re.match("^mu", key)):
+				if len(key.split("-")) == 1:
+					d = {
+						'peak': key.split("-")[0],
+						'state': 'gs'
+					}
+				if len(key.split("-")) == 2:
+					d = {
+						'peak': key.split("-")[0],
+						'state': key.split("-")[1]
+					}
+				#
+				self.states.append(d)
+
 	def __store_tofs(self, file_isotope='', file_ref1='', file_ref2='',
 						t_isotope='', t_ref1='', t_ref2='',
 						t_isotope_err='', t_ref1_err='', t_ref2_err='',
-						centroid = 'mu0', tweak_tofs = [0,0,0],
+						centroid = 'mu0', online_ref = '', tweak_tofs = [0,0,0],
 						is_doublet = False, dt = '', dt_err = '',
 						):
 		"""
@@ -597,14 +623,15 @@ class MRToFIsotope(MRToFUtils):
 		# Store isotope of interest fit file
 		if file_isotope != '' and t_isotope == '':
 			self.isotope_fit = FitToDict(file_isotope)
+			self.__infer_states(self.isotope_fit.fit['RESULTS-TABLE'])
 			self.isotope_gs_t = float(self.isotope_fit.get_val(centroid, 'value')) + tweak_tofs[0]
-			self.isotope_gs_t_err = float(self.isotope_fit.get_val('mu0', 'error'))
+			self.isotope_gs_t_err = float(self.isotope_fit.get_val(centroid, 'error'))
 			# If isomer is passed, store isomere ToF or ToF difference as well
 			if self.state != 'gs':
 				# If doublet is passed as fit file
 				if is_doublet and dt == '':
-					self.isotope_m_dt = float(self.isotope_fit.get_val(self.doublet_key, 'value')) + tweak_tofs[0]
-					self.isotope_m_dt_err = float(self.isotope_fit.get_val(self.doublet_key, 'error'))
+					self.isotope_m_dt = float(self.isotope_fit.get_val(f"{centroid}-{self.doublet_key}", 'value')) + tweak_tofs[0]
+					self.isotope_m_dt_err = float(self.isotope_fit.get_val(f"{centroid}-{self.doublet_key}", 'error'))
 				else:
 					self.isotope_m_t = float(self.isotope_fit.get_val(self.isomere_key, 'value')) + tweak_tofs[0]
 					self.isotope_m_t_err = float(self.isotope_fit.get_val(self.isomere_key, 'error'))
@@ -630,10 +657,13 @@ class MRToFIsotope(MRToFUtils):
 			return -1
 		#
 		self.file_ref1 = file_ref1
-		if file_ref1 != '' and t_ref1 == '':
+		if file_ref1 != '' and t_ref1 == '' and online_ref == '':
 			self.ref1_fit = FitToDict(file_ref1)
 			self.ref1_t = float(self.ref1_fit.get_val(centroid, 'value')) + tweak_tofs[1]
-			self.ref1_t_err = float(self.ref1_fit.get_val('mu0', 'error'))
+			self.ref1_t_err = float(self.ref1_fit.get_val(centroid, 'error'))
+		elif file_isotope != '' and file_ref1 == '' and t_ref1 == '' and online_ref != '':
+			self.ref1_t = float(self.isotope_fit.get_val(online_ref, 'value')) + tweak_tofs[1]
+			self.ref1_t_err = float(self.isotope_fit.get_val(online_ref, 'error'))
 		elif file_ref1 == '' and t_ref1 != '' and t_ref1_err != '':
 			self.ref1_t = t_ref1 + tweak_tofs[1]
 			self.ref1_t_err = t_ref1_err
@@ -645,7 +675,7 @@ class MRToFIsotope(MRToFUtils):
 		self.file_ref2 = file_ref2
 		if file_ref2 != '' and t_ref2 == '':
 			self.ref2_fit = FitToDict(file_ref2)
-			self.ref2_t = float(self.ref2_fit.get_val(centroid, 'value')) + tweak_tofs[2]
+			self.ref2_t = float(self.ref2_fit.get_val('mu0', 'value')) + tweak_tofs[2]
 			self.ref2_t_err = float(self.ref2_fit.get_val('mu0', 'error'))
 		elif file_ref2 == '' and t_ref2 != '' and t_ref2_err != '':
 			self.ref2_t = t_ref2 + tweak_tofs[2]
@@ -687,7 +717,7 @@ class MRToFIsotope(MRToFUtils):
 	def calc_mass(self, file_isotope='', file_ref1='', file_ref2='',
 						t_isotope='', t_ref1='', t_ref2='',
 						t_isotope_err='', t_ref1_err='', t_ref2_err='',
-						centroid = 'mu0',
+						centroid = 'mu0', online_ref = '',
 						tweak_tofs = [0,0,0],
 						print_results = False):
 		'''
@@ -701,7 +731,7 @@ class MRToFIsotope(MRToFUtils):
 		'''
 		# Store ToFs
 		self.__store_tofs(file_isotope, file_ref1, file_ref2,t_isotope, t_ref1, t_ref2, t_isotope_err, 
-							t_ref1_err, t_ref2_err, centroid, tweak_tofs)
+							t_ref1_err, t_ref2_err, centroid, online_ref, tweak_tofs)
 		#
 		self.C_tof = self.calc_C_ToF(self.isotope_gs_t, self.ref1_t, self.ref2_t)
 		self.C_tof_err = self.calc_C_ToF_err(t=self.isotope_gs_t, t_err=self.isotope_gs_t_err,
@@ -729,7 +759,7 @@ class MRToFIsotope(MRToFUtils):
 	def calc_exc_energy(self, file_isotope='', file_ref1='', file_ref2='',
 						t_isotope='', t_ref1='', t_ref2='',
 						t_isotope_err='', t_ref1_err='', t_ref2_err='',
-						centroid = 'mu0', tweak_tofs = [0,0,0],
+						centroid = 'mu0', online_ref = '', tweak_tofs = [0,0,0],
 						custom_gs = '', custom_gs_err = '',
 						is_doublet = False,
 						print_results = False):
@@ -747,7 +777,7 @@ class MRToFIsotope(MRToFUtils):
 		'''
 		# Store ToFs
 		self.__store_tofs(file_isotope, file_ref1, file_ref2,t_isotope, t_ref1, t_ref2, t_isotope_err, 
-							t_ref1_err, t_ref2_err, centroid, tweak_tofs, is_doublet)
+							t_ref1_err, t_ref2_err, centroid, online_ref, tweak_tofs, is_doublet)
 		#
 		# Calculation of excitation energy via C_tof differences e.g. mass differences
 		if not is_doublet:
