@@ -1432,7 +1432,9 @@ class hyperEmg(FitMethods):
 		return [self.this_roohist, self.roodefs, self.this_pdf, self.my_name, self.spl_draw, self.rooCompon, self.fit_results]	
 	
 	def plot(self, bins = 1, log=False, focus=-1, from_file = False, file_out=False, contribs = False,
-		silent=True, centroids=False, components=False, carpet=False, legend=True, style='errorbar'):
+		silent=True, centroids=False, components=False, carpet=False, legend=True, style='errorbar',
+		fs_legend = 14, fs_xlabel = 20, fs_ylabel = 20, figsize = (6,4)
+		):
 		"""  
 		Wrapper for plotting the fit and data
 			- bins: number of bins to rebin. Defaults to 1, e.g. no rebinning
@@ -1446,6 +1448,9 @@ class hyperEmg(FitMethods):
 			- carpet: If true, plots carpet 
 			- legend: Plot legend if
 		"""
+		#
+		plt.rcParams["figure.figsize"] = figsize
+		#
 		if len(self.lst_file) == 0:
 			print("Fit not excecuted yet or failed.")
 			return 0 
@@ -1492,8 +1497,11 @@ class hyperEmg(FitMethods):
 
 		# Plot data
 		if style == 'errorbar':
-			plt.errorbar(cx - self.numerical_peak,
-					 n, n ** 0.5, fmt="ok", zorder=1, label=f"Data (bins={bins})")
+			# use sqrt(n) as error, if n==1 use smaller error to avoid having inifite long error bars in log-scale
+			plt.errorbar(cx - self.numerical_peak, n, [val ** 0.5 if val != 1 else 0.75 for val in n] ,
+					ecolor='black', elinewidth=1,  
+					fmt="ok", zorder=1, label=f"Data (bins={bins})"
+			)
 		elif style == 'hist':
 			plt.hist((xdata - self.numerical_peak), bins=self.get_binning(), color='black', label=f"Data (bins={bins})")
 
@@ -1560,7 +1568,12 @@ class hyperEmg(FitMethods):
 					i_ratio += 1
 					# Plot
 					plt.plot(xm - self.numerical_peak, 
-							 y_val, label=f"Neg. component {comp}:{dim})", c='grey', ls="--", zorder=2, linewidth=1.75)
+							 y_val, c='grey', ls="--", zorder=2, linewidth=2.25,
+							 #label=f"Neg. component {comp}:{dim})"
+							 )
+					# Shade area under component
+					plt.fill_between(xm - self.numerical_peak, y_val, alpha=0.2, color='grey')
+
 			# Positive egh components
 			for dim in range(0,self.dimensions[1],1):
 				for comp in range(0,self.n_comps,1):
@@ -1580,8 +1593,14 @@ class hyperEmg(FitMethods):
 					i_ratio += 1
 					# Plot
 					plt.plot(xm - self.numerical_peak, 
-							 y_val, label=f"Pos. component {comp}:{dim})", c='grey', ls="--", zorder=2, linewidth=1.75)
-		
+							 y_val, c='grey', ls="--", zorder=2, linewidth=2.25,
+							 #label=f"Neg. component {comp}:{dim})"
+							 )
+					# Shade area under component
+					print("filled_between")
+					plt.fill_between(xm - self.numerical_peak, y_val, step='pre', alpha=0.2, color='grey')
+
+
 		if components and contribs:
 
 			n_ratios = self.n_comps - 1
@@ -1626,7 +1645,12 @@ class hyperEmg(FitMethods):
 
 					# Plot
 					plt.plot(xm - self.numerical_peak, 
-							 y_val, label=f"Neg. component "+state["peak"]+f":{dim})", c='grey', ls="--", zorder=2, linewidth=1.75)
+							 y_val, c='grey', ls="--", zorder=2, linewidth=2.25,
+							 #label=f"Neg. component {comp}:{dim})"
+							 )
+					# Shade area under component
+					plt.fill_between(xm - self.numerical_peak, y_val, alpha=0.4, color='grey')
+
 				#
 				i_contrib += 1 
 				#
@@ -1663,7 +1687,12 @@ class hyperEmg(FitMethods):
 					
 					# Plot
 					plt.plot(xm - self.numerical_peak, 
-							 y_val, label=f"Pos. component "+state["peak"]+f":{dim})", c='grey', ls="--", zorder=2, linewidth=1.75)
+							 y_val, c='grey', ls="--", zorder=2, linewidth=2.25,
+							 #label=f"Neg. component {comp}:{dim})"
+							 )
+					# Shade area under component
+					plt.fill_between(xm - self.numerical_peak, y_val, alpha=0.4, color='grey')
+
 				#
 				i_contrib += 1 
 				#
@@ -1682,12 +1711,14 @@ class hyperEmg(FitMethods):
 						 self.peaks.pos[focus] + 1200 - self.numerical_peak)
 
 		# Add axis labels
-		plt.xlabel(f'Time-of-Flight [ns] - {self.numerical_peak:.1f}ns', fontsize=20)
-		plt.ylabel(f'Counts per bin', fontsize=20)
+		plt.xlabel(f'Time-of-Flight [ns] - {self.numerical_peak:.1f}ns', fontsize=fs_xlabel)
+		plt.ylabel(f'Counts per bin', fontsize=fs_ylabel)
 
 		# Format Legend
 		if legend:
-			plt.legend(fontsize=20)
+			plt.legend(fontsize=fs_legend)
+
+		plt.tight_layout()
 
 		# Save plot
 		if file_out != False:

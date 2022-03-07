@@ -44,7 +44,8 @@ def custom_colors():
 def simple_error_plt(y, y_err, x='', x_labels='', \
 					 label = ["ISOLTRAP"], x_label='', y_label=[''], title='', \
 					 ref_value=None, ref_err=None, ref_legend_label='AME20 Error', ref_axis=0,
-					 x_share = False,
+					 with_lines = False,
+					 x_share = False, figsize = (4.5*1.5, 4.5),
 					 ):
 	'''
 	Simple scatter plot with y error bars.
@@ -55,12 +56,13 @@ def simple_error_plt(y, y_err, x='', x_labels='', \
 	- x_labels: array of strings to be used as x-labels
 	- x_label: x-axis labeling
 	- y_label: y-axis labeling
+	- with_lines: if True, connects scatter data points with lines
 	- title: plot title
 	'''
 	colors = custom_colors()
 	colors_keys = list(colors['Jo-s_favs'].keys())
 	mpl.rc('text', usetex=False)
-	fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(4.5*1.5, 4.5))
+	fig, ax = plt.subplots(nrows=1, ncols=1, figsize=figsize)
 	
 	if len(x_labels) != 0 and len(x) == 0:
 		x = np.arange(0,len(x_labels),1)
@@ -82,11 +84,15 @@ def simple_error_plt(y, y_err, x='', x_labels='', \
 		if i == 0:
 			ax.errorbar(x_plot, y[i], y_err[i],
 					   fmt='o', color=colors['Jo-s_favs'][colors_keys[i]], zorder = 2, 
-					   label=label[i], 
+					   label=label[i], markeredgewidth=2, mec = 'black',
 					   fillstyle='full', mfc="black", linewidth=2, ms =10
 			)
+			if with_lines:
+				ax.plot(x_plot, y[i], "-", color=colors['Jo-s_favs'][colors_keys[i]], zorder = 2, linewidth=2)
+			#
 			ax.set_ylabel(y_label[i], size=18) #fontweight='bold')
 			ax.tick_params(direction='out')
+			#
 		else:
 			if x_share:
 				twins.append(ax.twinx())
@@ -103,12 +109,15 @@ def simple_error_plt(y, y_err, x='', x_labels='', \
 
 			twins[i-1].errorbar(x_plot, y[i], y_err[i],
 				   fmt='o', color=color, zorder = 2, 
-				   label=label[i], 
+				   label=label[i], markeredgewidth=2, mec = 'black',
 				   fillstyle='full', mfc=color, linewidth=2, ms =10
 			)
+			if with_lines:
+				twins[i-1].plot(x_plot, y[i], color=color, zorder = 2, linewidth=2)
 
-			ax.set_zorder(twins[i-1].get_zorder()+1)
-			ax.patch.set_visible(False)
+
+			# ax.set_zorder(twins[i-1].get_zorder()+1)
+			# ax.patch.set_visible(False)
 
 
 	#
@@ -130,12 +139,12 @@ def simple_error_plt(y, y_err, x='', x_labels='', \
 			x_plot = np.arange(0,len(x_labels),1)
 			if ref_axis == 0:
 				ax.fill_between(x_plot, ref_value-ref_err, ref_value+ref_err, facecolor='0.5', alpha=0.5,
-						label = ref_legend_label)
-				ax.plot(x_plot, [ref_value for value in x_plot], color='grey')
+						label = ref_legend_label, zorder = 1)
+				ax.plot(x_plot, [ref_value for value in x_plot], color='grey', zorder = 1)
 			else:
 				twins[ref_axis-1].fill_between(x_plot, ref_value-ref_err, ref_value+ref_err, facecolor='0.5', alpha=0.5,
-						label = ref_legend_label)
-				twins[ref_axis-1].plot(x_plot, [ref_value for value in x_plot], color='grey')
+						label = ref_legend_label, zorder = 1)
+				twins[ref_axis-1].plot(x_plot, [ref_value for value in x_plot], color='grey', zorder = 1)
 
 
 	# plt.axhspan(ref_value-ref_err, ref_value+ref_err, facecolor='0.5', alpha=0.5)
@@ -145,8 +154,9 @@ def simple_error_plt(y, y_err, x='', x_labels='', \
 	
 	plt.legend()#handles, labels, fontsize=12, frameon=False, ncol=1, loc="upper left")
 	
-	plt.tight_layout()
 	plt.title(title, fontsize=20)
+
+	plt.tight_layout()
 	# plt.savefig("./Mercury_Masses_Comparison.pdf", dpi=300)
 	plt.show()
 
