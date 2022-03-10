@@ -1288,12 +1288,14 @@ class Peaks:
 
         # faster binning for projections than histograms -> necessary in order to automatically find peaks
         x_proj = self.file.tof.value_counts(bins=self.get_binning(bins)).sort_index()
-        y_proj = self.file.sweep.value_counts(bins=500).sort_index()
+        y_proj = self.file.sweep.value_counts().sort_index()
+        # y_proj = self.file.sweep.value_counts(bins=500).sort_index()
 
         # main plotting
         self.file.plot(x='tof', y='sweep', style='o', alpha=0.15, ms=2, ax=ax_0, label='unbinned data')
         ax_x.semilogy(x_proj.index.mid.to_numpy(), x_proj.to_numpy())
-        ax_y.plot(y_proj.to_numpy(), y_proj.index.mid.to_numpy())
+        # ax_y.plot(y_proj.to_numpy(), y_proj.index.mid.to_numpy())
+        ax_y.plot(y_proj.to_numpy(), y_proj.index.to_numpy())
 
         # plt.plot(tof, sweep, 'o', alpha=0.15, ms=2, label='unbinned data')
         for i in range(self.n_peaks):
