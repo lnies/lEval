@@ -826,7 +826,10 @@ class hyperEmg(FitMethods):
 			# Builf function
 			funct += self.function_string(c1 = mu, c2 = sigma, c3=ptau, R=f"{contrib}", pol="-")+ "+"
 			comp+=1
-		return funct[:-1] # cut away last character which is a "+"
+		# Add constant background
+		# funct = funct[:-1] + f"+@{4+2*comp+1}" # cut away last character which is a "+" and add const. background
+		#
+		return funct[:-1]
 	
 	def build_function_string_SAVE(self, dimensions = [0,1], params = {}, state = {}):
 		#
@@ -1153,6 +1156,15 @@ class hyperEmg(FitMethods):
 			j += 1
 
 		print(self.RooRealVar_dict)
+
+		# Add constant background
+		# self.RooRealVar_dict['bck'] = RooRealVar('bck', 'bck', self.limits['bck'][0], self.limits['bck'][1], self.limits['bck'][2])
+		# listofRooArgs = RooArgList()
+		# listofRooArgs.add(self.RooRealVar_dict['bck'])
+		# print(f"--> Add RooArg: 'bck'")
+		# self.RooGenericPdf_dict['background'] = RooGenericPdf('background','background','@0',listofRooArgs)
+		# var_name = f"ratio{n_comps-1}"
+		# self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
 
 		# Put all pdfs together
 		all_pdfs = RooArgList()
