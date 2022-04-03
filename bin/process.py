@@ -55,10 +55,12 @@ class ProcessorBase():
             if i == 0: 
                 continue
             key = list(self.df_dict.keys())[i]
+            # print(key)
             key_m1 = list(self.df_dict.keys())[i-1]
+            # print(key_m1, self.df_dict[key_m1].iloc[-1]['sweep'])
             self.df_dict[key]['sweep'] += self.df_dict[key_m1].iloc[-1]['sweep'] + 1
         #
-        df = pd.concat(self.df_dict)
+        df = pd.concat(self.df_dict, ignore_index=True)
         # Save to file if file name is passed
         if to_csv != False:
             df.to_csv(to_csv, index=False)
@@ -334,6 +336,11 @@ class MPANTMpa(ProcessorBase):
             self.read(f)
             # Convert bins to tof in ns
             name = os.path.basename(f).split('.')[0]
+            # Check of file name is in dict 
+            if name not in self.df_dict.keys():
+                print(f"(MPANTMpa.process): WARNING: file {name} not processed. Empty?")
+                continue
+            #
             self.df_dict[name].tof = self.df_dict[name].tof * float(self.pars[name]['calfact']) + float(self.pars[name]['caloff'])
             if to_csv:
                 self.df_dict[name].to_csv('{}/{}.csv'.format(os.path.split(f)[0],os.path.splitext(os.path.basename(f))[0]), index=False)
@@ -357,7 +364,8 @@ class MCDWIN887(ProcessorBase):
         Read mpa data file
         :return:
         """
-        self.parse_header(p887)
+        if self.parse_header(p887) == -1:
+            return -1
         folder = os.path.dirname(p887) + os.path.sep
         name = os.path.basename(p887).split('.')[0]
 
@@ -407,18 +415,24 @@ class MCDWIN887(ProcessorBase):
         return df
 
     def parse_header(self, key):
-        with open(key, 'r') as f:
-            fs = '[root]\n' + f.read()
-            key = os.path.basename(key).split('.')[0]
-            parser = CustomParser(strict=False)
-            parser.read_file(StringIO(fs))
-            tmp = parser.as_dict()
+        """
+        Parse header if file exists and is .887 file
+        """
+        try:
+            with open(key, 'r') as f:
+                fs = '[root]\n' + f.read()
+                key = os.path.basename(key).split('.')[0]
+                parser = CustomParser(strict=False)
+                parser.read_file(StringIO(fs))
+                tmp = parser.as_dict()
 
-            self.pars[key] = dict(**tmp['root'])
-            # correct for inconsistent 'fmt' keyword in FASTCom configuration file (.887)
-            if self.pars[key]['fmt'] == '3':
-                self.pars[key]['fmt_idx'] = '3'
-                self.pars[key]['fmt'] = 'asc'
+                self.pars[key] = dict(**tmp['root'])
+                # correct for inconsistent 'fmt' keyword in FASTCom configuration file (.887)
+                if self.pars[key]['fmt'] == '3':
+                    self.pars[key]['fmt_idx'] = '3'
+                    self.pars[key]['fmt'] = 'asc'
+        except(Exception, FileNotFoundError) as err:
+            return -1
 
     def process(self, files, to_csv=True):
         """
@@ -428,9 +442,16 @@ class MCDWIN887(ProcessorBase):
         self.files = files
         #
         for i, f in enumerate(files):
-            self.read(f)
+            if self.read(f) == -1:
+                print(f"(MCDWIN887.process): WARNING: file {f} not processed. Empty?")
+                continue
             # Convert bins to tof in ns
             name = os.path.basename(f).split('.')[0]
+            # Check of file name is in dict 
+            if name not in self.df_dict.keys():
+                print(f"(MCDWIN887.process): WARNING: file {name} not processed. Empty?")
+                continue
+            #
             self.df_dict[name].tof = self.df_dict[name].tof * float(self.pars[name]['calfact']) + float(self.pars[name]['caloff'])
             if to_csv:
                 self.df_dict[name].to_csv('{}/{}.csv'.format(os.path.split(f)[0],os.path.splitext(os.path.basename(f))[0]), index=False)
