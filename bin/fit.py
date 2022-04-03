@@ -101,11 +101,11 @@ class FitMethods():
 			self.rootitle = xtitle
 			self.roounit = 'a.u.'
 		
-	def minimize(self, th1d, xmin, xmax):
+	def minimize(self, data, xmin, xmax, datatype = 'is_th1d'):
 		"""
 		Performs the maximum likelihood fit.
 
-		:param th1d: the histogram to fit
+		:param data: the histogram to fit
 		:param xmin: fit range min
 		:param xmax: fit range max
 		:return: fitted histogram, fit results
@@ -124,7 +124,12 @@ class FitMethods():
 		else:
 			ranges = f"win_{self.roodefs[0].GetName()}"
 			x.setRange(ranges, xmin, xmax)
-		roohist = RooDataHist('roohist_tof', 'title', RooArgList(x), RooFit.Import(th1d))
+		if datatype == 'is_th1d': 
+			roohist = RooDataHist('roohist_tof', 'title', RooArgList(x), RooFit.Import(data))
+		elif datatype == 'is_roodatahist':
+			roohist = data
+		else:
+			roohist = data
 		print("Test-MINIMIZE")
 		result_mlkh = self.roodefs[0].fitTo(roohist,
 											RooFit.Range(ranges),
@@ -152,6 +157,7 @@ class FitMethods():
 		if minn == maxx:
 			maxx += 1
 		#
+		print(self.bins, minn, maxx)
 		# print(f"BINNING: {round((maxx-minn)/0.8/self.bins)}")
 		return round((maxx-minn)/0.8/self.bins)
 
@@ -163,6 +169,7 @@ class FitMethods():
 		"""
 		# Get min and max tof from data frame
 		self.bins = bins
+		print(len(self.lst_file.tof))
 		minn = self.lst_file.tof.min()
 		maxx = self.lst_file.tof.max()
 		hist = ROOT.TH1D( 'hist', 'hist converted', self.get_binning(bins), minn, maxx)
@@ -1026,18 +1033,16 @@ class hyperEmg(FitMethods):
 		:return list: containing all relevant information about the ROI histogram, PDF, parameters,
 					  PDF components and fit results
 		"""
+		# Test dimension of limits
+		self.xmin = xmin
+		self.xmax = xmax
+
 		# Convert histogram
 		self.bins = bins
 		self.binning = self.get_binning(bins=self.bins)
 		self.n_comps = n_comps
 		self.hist = self.lst2roothist(self.lst_file, bins=1)
-		# Test dimension of limits
-		self.xmin = xmin
-		self.xmax = xmax
-		# if isinstance(xmin, list):
-		# 	print("(FIT_LUKAS::hyperEmg::call_pdf): Multiple fit-regions not supported in this fit function")
-		# 	return 0
-		#
+
 		self.compose_title_unit(self.hist.GetXaxis().GetTitle())
 
 		# Initialize limits
@@ -1151,6 +1156,7 @@ class hyperEmg(FitMethods):
 			# Build component ratios
 			if j < (n_comps-1): 
 				var_name = f"ratio{j}"
+				print(f"--> Add RooArg: 'ratio{j}'")
 				self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
 			#
 			j += 1
@@ -1177,11 +1183,41 @@ class hyperEmg(FitMethods):
 			if m:
 				all_ratios.add(self.RooRealVar_dict[var])
 		# Definition hyper-EMG
+		# self.this_pdf = RooAddPdf('hyperEmg', 'hyperEmg', all_pdfs, all_ratios, recursiveFraction = ROOT.kFALSE)
 		self.this_pdf = RooAddPdf('hyperEmg', 'hyperEmg', all_pdfs, all_ratios, recursiveFraction = ROOT.kFALSE)
 		# self.this_pdf = RooAddPdf('hyperEmg', 'hyperEmg', RooArgList(self.psEmg, self.nsEmg), RooArgList(self.emgratio))
-		# 
+	
+		# Define categories to distinguish between different files in case multiple files are to be fitted simulaneuously
+		# sample = ROOT.RooCategory("sample", "sample")
+		# # sample.defineType("File1")
+		# # sample.defineType("File2")
+
+		# # Construct combined dataset in (x,sample)
+		# datahist = ROOT.RooDataHist(
+		# 	"physics",
+		# 	"physics",
+		# 	RooArgList(self.RooRealVar_dict['x']),
+		# 	ROOT.RooFit.Index(sample),	
+		# 	# self.hist,
+		# 	# ROOT.std.map("physics, self.hist")(),
+		# 	ROOT.RooFit.Import("File1", self.hist),
+		# )
+
+		# # Construct a simultaneous pdf in (x, sample)
+		# # -----------------------------------------------------------------------------------
+		 
+		# # Construct a simultaneous pdf using category sample as index
+		# self.this_pdf = ROOT.RooSimultaneous("simPdf", "simultaneous pdf", sample)
+		 
+		# # Associate model with the physics state and model_ctl with the control
+		# # state
+		# self.this_pdf.addPdf(pdf, "File1")
+
+		# simPdf.fitTo(datahist)
+
+		#
 		self.roodefs = [self.this_pdf, self.RooRealVar_dict, self.RooGenericPdf_dict]
-		self.this_roohist, self.fit_results = self.minimize(self.hist, self.xmin, self.xmax)
+		self.this_roohist, self.fit_results = self.minimize(self.hist, self.xmin, self.xmax, datatype='is_th1d')
 
 		# THIS LINE HAS TO BE HERE FOR SOME UNKNOW REASON TO ME TO AVOID A SEG FAULT IN THE PLOT FUNCTION GOD KNOWS WHY I REALLY DON'T KNOW ANYMORE...
 		print(self.this_pdf.getVal(ROOT.RooArgSet(self.RooRealVar_dict['x'])))
@@ -1189,263 +1225,19 @@ class hyperEmg(FitMethods):
 		# Calculate numerical position of maximum and FWHM
 		mu = self.RooRealVar_dict['mu0'].getValV()
 		sigma = self.RooRealVar_dict['sigma'].getValV()
+		print(mu, sigma)
 		self.numerical_peak, self.numerical_FWHM, self.numerical_FWHM_left, self.numerical_FWHM_right = self.find_peak_and_fwhm(mu, sigma)
-
+		print(self.numerical_peak, self.numerical_FWHM, self.numerical_FWHM_left, self.numerical_FWHM_right)
 		# Store fit results in dict
 		for key in self.RooRealVar_dict:
 			self.Var_dict[key] = self.RooRealVar_dict[f'{key}'].getValV()
+			print(self.Var_dict[key])
 
 		return [self.this_roohist, self.roodefs, self.this_pdf, self.my_name, self.spl_draw, self.rooCompon, self.fit_results]	
-	
-	def call_pdf_isomer_as_exc_energy(self, xmin, xmax, dimensions = [1,2], n_comps = 2, bins = 1, limits=False):
-		"""
-		Setup Variable, Parameters and PDF and performs fitting of the PDF to ROI data.
-		:param roi_hist: histogram to fit
-		:param xmin: range min for the fit
-		:param xmax: range max for the fit
-		:dimensions: array with number of negative and positive components to the hyper-EMG
-		:n_comps: number of species withing fit range
-		:bins: binning for the histogram to be fitted
-		:return list: containing all relevant information about the ROI histogram, PDF, parameters,
-					  PDF components and fit results
-		"""
-		# Convert histogram
-		self.bins = bins
-		self.binning = self.get_binning(bins=self.bins)
-		self.n_comps = n_comps
-		self.hist = self.lst2roothist(self.lst_file, bins=1)
-		# Test dimension of limits
-		self.xmin = xmin
-		self.xmax = xmax
-		if isinstance(xmin, list):
-			print("(FIT_LUKAS::hyperEmg::call_pdf): Multiple fit-regions not supported in this fit function")
-			return 0
-		#
-		self.compose_title_unit(self.hist.GetXaxis().GetTitle())
-
-		# Initialize limits
-		if not limits:
-			self.init_limits()
-		#  
-		else:
-			# If limits are passed, save them in dict
-			# Careful! This overwrite the constraints set by constraints_from_file
-			for limit in limits:
-				self.limits[limit] = limits[limit]
-		# Fill variable dictionary:
-		self.RooRealVar_dict = {
-			'x': RooRealVar("x", self.rootitle, self.xmin, self.xmax, self.roounit)
-		}
-		# Constant background
-		# self.RooRealVar_dict["const_bck"] = RooRealVar("const_bck", "const_bck", self.limits["const_bck"][0], self.limits["const_bck"][1], self.limits["const_bck"][2])
-		# self.RooGenericPdf_dict["const_bck"] = RooPolynomial("const_bck","const_bck", self.RooRealVar_dict['x'], RooArgList())
 		
-		# Define Gaussian components for the fit
-		# Shared by all components
-		self.RooRealVar_dict["sigma"] = RooRealVar("sigma", "sigma", self.limits["sigma"][0], self.limits["sigma"][1], self.limits["sigma"][2])
-		# for ground state
-		var_name = f"mu0"
-		self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
-		# for isomers
-		for i in range(0,n_comps-1,1):
-			var_name = f"E{i}"
-			self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
-		
-		# Dimensions for Emg
-		self.dimensions = dimensions
-		# Definition of negative exponential components
-		for i in range(0,dimensions[0],1):
-			var_name = f"ntau{i}"
-			self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
-		# Definition of positive exponential components
-		for i in range(0,dimensions[1],1):
-			var_name = f"ptau{i}"
-			self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
-		# Definition of ratio factors: n-1 factors for n components. (+1 ratio for constant background)
-		n_components = n_comps * (dimensions[0] + dimensions[1]) - 1
-		for i in range(0,n_components,1):
-			var_name = f"ratio{i}"
-			self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
-		# Definition for the negative EMG components
-		for i in range(0,dimensions[0],1):
-			for j in range(0,n_comps,1):
-				pdf_name = f"nsemg{i}{j}"
-				# ground state
-				if j == 0:
-					self.RooGenericPdf_dict[pdf_name] = RooGenericPdf(pdf_name,pdf_name,self.neg_funct,
-															RooArgList(self.RooRealVar_dict['x'], 
-																	   self.RooRealVar_dict[f'mu0'], 
-																	   self.RooRealVar_dict['sigma'], 
-																	   self.RooRealVar_dict[f'ntau{i}']))
-				# isomers
-				else:
-					self.RooGenericPdf_dict[pdf_name] = RooGenericPdf(pdf_name,pdf_name,self.neg_funct_on_gs,
-															RooArgList(self.RooRealVar_dict['x'], 
-																	   self.RooRealVar_dict[f'mu0'], 
-																	   self.RooRealVar_dict['sigma'], 
-																	   self.RooRealVar_dict[f'ntau{i}'],
-																	   self.RooRealVar_dict[f'E{j-1}']))
-		# Definition for the positive EMG components
-		for i in range(0,dimensions[1],1):
-			for j in range(0,n_comps,1):
-				pdf_name = f"psemg{i}{j}"
-				# ground state 
-				if j == 0:
-					self.RooGenericPdf_dict[pdf_name] = RooGenericPdf(pdf_name,pdf_name,self.pos_funct,
-															RooArgList(self.RooRealVar_dict['x'], 
-																	   self.RooRealVar_dict[f'mu0'], 
-																	   self.RooRealVar_dict['sigma'], 
-																	   self.RooRealVar_dict[f'ptau{i}']))
-				# isomers 
-				else:
-					self.RooGenericPdf_dict[pdf_name] = RooGenericPdf(pdf_name,pdf_name,self.pos_funct_on_gs,
-															RooArgList(self.RooRealVar_dict['x'], 
-																	   self.RooRealVar_dict[f'mu0'], 
-																	   self.RooRealVar_dict['sigma'], 
-																	   self.RooRealVar_dict[f'ptau{i}'],
-																	   self.RooRealVar_dict[f'E{j-1}']))
-		# Put all pdfs together
-		all_pdfs = RooArgList()
-		for pdf in self.RooGenericPdf_dict:
-			all_pdfs.add(self.RooGenericPdf_dict[pdf])
-		# put all ratio's together
-		all_ratios = RooArgList()
-		for var in self.RooRealVar_dict:
-			m = re.search('ratio*', var)
-			if m:
-				all_ratios.add(self.RooRealVar_dict[var])
-		# Definition hyper-EMG
-		self.this_pdf = RooAddPdf('hyperEmg', 'hyperEmg', all_pdfs, all_ratios, recursiveFraction = ROOT.kFALSE)
-		# self.this_pdf = RooAddPdf('hyperEmg', 'hyperEmg', RooArgList(self.psEmg, self.nsEmg), RooArgList(self.emgratio))
-		# 
-		self.roodefs = [self.this_pdf, self.RooRealVar_dict, self.RooGenericPdf_dict]
-		self.this_roohist, self.fit_results = self.minimize(self.hist, self.xmin, self.xmax)
-
-		# THIS LINE HAS TO BE HERE FOR SOME UNKNOW REASON TO ME TO AVOID A SEG FAULT IN THE PLOT FUNCTION GOD KNOWS WHY I REALLY DON'T KNOW ANYMORE...
-		print(self.this_pdf.getVal(ROOT.RooArgSet(self.RooRealVar_dict['x'])))
-
-		# Calculate numerical position of maximum and FWHM
-		mu = self.RooRealVar_dict['mu0'].getValV()
-		sigma = self.RooRealVar_dict['sigma'].getValV()
-		self.numerical_peak, self.numerical_FWHM, self.numerical_FWHM_left, self.numerical_FWHM_right = self.find_peak_and_fwhm(mu, sigma)
-
-		# Store fit results in dict
-		for key in self.RooRealVar_dict:
-			self.Var_dict[key] = self.RooRealVar_dict[f'{key}'].getValV()
-
-		return [self.this_roohist, self.roodefs, self.this_pdf, self.my_name, self.spl_draw, self.rooCompon, self.fit_results]	
-
-	def call_pdf_by_string(self, xmin, xmax, dimensions = [1,2], n_comps = 1, bins = 1, limits=False, params={}, is_doublet = False):
-		"""
-		Setup Variable, Parameters and PDF and performs fitting of the PDF to ROI data.
-		:param roi_hist: histogram to fit
-		:param xmin: range min for the fit
-		:param xmax: range max for the fit
-		:dimensions: array with number of negative and positive components to the hyper-EMG
-		:n_comps: number of species withing fit range
-		:bins: binning for the histogram to be fitted
-		:is_double: if true, doublet fit is performed
-		:return list: containing all relevant information about the ROI histogram, PDF, parameters,
-					  PDF components and fit results
-		"""
-		# Convert histogram
-		self.bins = bins
-		self.binning = self.get_binning(bins=self.bins)
-		self.n_comps = n_comps
-		self.hist = self.lst2roothist(self.lst_file, bins=1)
-		# Test dimension of limits
-		self.xmin = xmin
-		self.xmax = xmax
-		if isinstance(xmin, list):
-			print("(FIT_LUKAS::hyperEmg::call_pdf): Multiple fit-regions not supported in this fit function")
-			return 0
-		# Dimensions for Emg
-		self.dimensions = dimensions
-		#
-		self.compose_title_unit(self.hist.GetXaxis().GetTitle())
-
-		# Initialize limits
-		if not limits:
-			self.init_limits()
-		#  
-		else:
-			# If limits are passed, save them in dict
-			# Careful! This overwrite the constraints set by constraints_from_file
-			for limit in limits:
-				self.limits[limit] = limits[limit]
-		# Fill variable dictionary:
-		self.RooRealVar_dict = {
-			'x': RooRealVar("x", self.rootitle, self.xmin, self.xmax, self.roounit)
-		}
-		# Constant background
-		# self.RooRealVar_dict["const_bck"] = RooRealVar("const_bck", "const_bck", self.limits["const_bck"][0], self.limits["const_bck"][1], self.limits["const_bck"][2])
-		# self.RooGenericPdf_dict["const_bck"] = RooPolynomial("const_bck","const_bck", self.RooRealVar_dict['x'], RooArgList())
-		
-		# Get parameters for template fitting
-		if len(params) == 0:
-			params = self.params
-
-		# Define Gaussian components for the fit
-		if is_doublet:
-			var_name = f"mu0"
-			self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
-		else:
-			for i in range(0,n_comps,1):
-				var_name = f"mu{i}"
-				self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
-		
-		for j in range(0,n_comps,1):
-			pdf_name = f"comp{j}"
-			# Start by building the PDF function string
-			funct = self.build_function_string(dimensions=dimensions, params=params, n_comp = j)
-			print(funct)
-			if is_doublet:
-				mu = 'mu0'
-			else:
-				mu = f'mu{j}'
-			self.RooGenericPdf_dict[pdf_name] = RooGenericPdf(pdf_name,pdf_name,funct,
-													RooArgList(self.RooRealVar_dict['x'], 
-															   self.RooRealVar_dict[mu]))
-			#
-			# Build component ratios
-			if j < (n_comps-1): 
-				var_name = f"ratio{j}"
-				self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
-
-		# Put all pdfs together
-		all_pdfs = RooArgList()
-		for pdf in self.RooGenericPdf_dict:
-			all_pdfs.add(self.RooGenericPdf_dict[pdf])
-		# put all ratio's together
-		all_ratios = RooArgList()
-		for var in self.RooRealVar_dict:
-			m = re.search('ratio*', var)
-			if m:
-				all_ratios.add(self.RooRealVar_dict[var])
-		# Definition hyper-EMG
-		self.this_pdf = RooAddPdf('hyperEmg', 'hyperEmg', all_pdfs, all_ratios)
-		# self.this_pdf = RooAddPdf('hyperEmg', 'hyperEmg', RooArgList(self.psEmg, self.nsEmg), RooArgList(self.emgratio))
-		# 
-		self.roodefs = [self.this_pdf, self.RooRealVar_dict, self.RooGenericPdf_dict]
-		self.this_roohist, self.fit_results = self.minimize(self.hist, self.xmin, self.xmax)
-
-		# THIS LINE HAS TO BE HERE FOR SOME UNKNOW REASON TO ME TO AVOID A SEG FAULT IN THE PLOT FUNCTION GOD KNOWS WHY I REALLY DON'T KNOW ANYMORE...
-		print(self.this_pdf.getVal(ROOT.RooArgSet(self.RooRealVar_dict['x'])))
-
-		# Calculate numerical position of maximum and FWHM
-		mu = self.RooRealVar_dict['mu0'].getValV()
-		sigma = float(params['sigma'])
-		self.numerical_peak, self.numerical_FWHM, self.numerical_FWHM_left, self.numerical_FWHM_right = self.find_peak_and_fwhm(mu, sigma)
-
-		# Store fit results in dict
-		for key in self.RooRealVar_dict:
-			self.Var_dict[key] = self.RooRealVar_dict[f'{key}'].getValV()
-
-		return [self.this_roohist, self.roodefs, self.this_pdf, self.my_name, self.spl_draw, self.rooCompon, self.fit_results]	
-	
 	def plot(self, bins = 1, log=False, focus=-1, from_file = False, file_out=False, contribs = False,
 		silent=True, centroids=False, components=False, carpet=False, legend=True, style='errorbar',
-		fs_legend = 14, fs_xlabel = 20, fs_ylabel = 20, figsize = (6,4)
+		fs_legend = 14, fs_xlabel = 20, fs_ylabel = 20, fs_ticks = 15, figsize = (6,4)
 		):
 		"""  
 		Wrapper for plotting the fit and data
@@ -1612,7 +1404,6 @@ class hyperEmg(FitMethods):
 					print("filled_between")
 					plt.fill_between(xm - self.numerical_peak, y_val, step='pre', alpha=0.2, color='grey')
 
-
 		if components and contribs:
 
 			n_ratios = self.n_comps - 1
@@ -1708,6 +1499,7 @@ class hyperEmg(FitMethods):
 				#
 				i_contrib += 1 
 				#
+		
 		# Get y axis limits
 		ylims = plt.ylim()
 		if log:
@@ -1725,6 +1517,9 @@ class hyperEmg(FitMethods):
 		# Add axis labels
 		plt.xlabel(f'Time-of-Flight [ns] - {self.numerical_peak:.1f}ns', fontsize=fs_xlabel)
 		plt.ylabel(f'Counts per bin', fontsize=fs_ylabel)
+
+		# Set ticks size 
+		plt.tick_params(axis='both', which='major', labelsize=fs_ticks)
 
 		# Format Legend
 		if legend:
