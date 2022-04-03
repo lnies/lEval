@@ -44,13 +44,22 @@ def get_time_of_measurement(mpa_file, as_datetime = False):
     pars, data, df = raw_file.process(files=[mpa_file])
     file_base = re.split("/|\.", mpa_file)[-2]
     for key in pars[file_base].keys():
-        if 'report-file' in key:
-            date_array = pars[file_base][key].split("written")[1].split(" ")
-            if as_datetime:
-                time = datetime.datetime.strptime(date_array[1]+" "+date_array[2], '%m/%d/%Y %H:%M:%S')
-                return time
-            else:
-                return(date_array[1]+" "+date_array[2])
+        # Get start time
+        if key == 'cmline0':
+            #
+            start_date = pars[file_base][key].split(" ")[0].split(".")[0]
+            start_time = pars[file_base][key].split(" ")[1].split(".")[0]
+        # get end time 
+        elif 'report-file' in key:
+            #
+            end_date = pars[file_base][key].split("written")[1].split(" ")[1]
+            end_time = pars[file_base][key].split("written")[1].split(" ")[2]
+            #
+        #
+    if as_datetime:
+        return datetime.datetime.strptime(start_date+" "+start_time, '%m/%d/%Y %H:%M:%S'), datetime.datetime.strptime(end_date+" "+end_time, '%m/%d/%Y %H:%M:%S')
+    else:
+        return(start_date+" "+start_time, end_date+" "+end_time)
 
 def get_ref_values(offline_refs_d, parameter = 'mu0', species = '85Rb', n_revs = '2000', 
                    fetch_file_nb = True, skip_file_nb=[], only_file_nb=[],
@@ -184,7 +193,7 @@ class NUBASE():
                 print(f"(error in NUBASE.__init__): Wrong version parsed. Only 'ame20' available.")
         except(Exception) as err: 
             print(f"(error in NUBASE.__init__): Could not load NUBASE: {err}.")
-    
+   
     def apply_mass_filters(self):
         """
         Function to apply mass filters to dataframe from self.ame
@@ -882,7 +891,7 @@ class MRToFIsotope(MRToFUtils):
             self.ref1_fit = FitToDict(file_ref1)
             self.ref1_t = float(self.ref1_fit.get_val(centroid, 'value')) + tweak_tofs[1]
             self.ref1_t_err = float(self.ref1_fit.get_val(centroid, 'error'))
-        elif file_isotope != '' and file_ref1 == '' and t_ref1 == '' and online_ref != '':
+        elif file_isotope != '' and file_ref1 != '' and t_ref1 == '' and online_ref != '':
             self.ref1_t = float(self.isotope_fit.get_val(online_ref, 'value')) + tweak_tofs[1]
             self.ref1_t_err = float(self.isotope_fit.get_val(online_ref, 'error'))
         elif file_ref1 == '' and t_ref1 != '' and t_ref1_err != '':
@@ -972,6 +981,7 @@ class MRToFIsotope(MRToFUtils):
             print(f"######################\n\
 # Result for {self.isotope}:\n\
 ######################\n\
+# - C_ToF: {self.C_tof:.8f}({self.C_tof_err:.8f})\n\
 # - Mass Excess ISOLTRAP: {self.me_isotope:.1f}({self.me_isotope_err:.1f})keV\n\
 # - Mass Excess {self.ame_version}: {(self.m_isotope_AME-self.A)*self.u:.1f}({self.m_isotope_AME_err:.1f})keV\n\
 # - Mass Difference ISOLTRAP-{self.ame_version}: {abs(self.me_isotope)-abs((self.m_isotope_AME-self.A)*self.u):.1f}keV\n\
@@ -1218,7 +1228,9 @@ class Peaks:
                 self.latest_right_base = right
                 self.latest_peak_idx = i 
                 
-    def plot(self, bins = 10, lines = True, focus=False, log=False, silent = False, save = False, path_to_file = "peaks"):
+    def plot(self, bins = 10, lines = True, focus=False, log=False, silent = False, 
+            fs_labels = 25, fs_ticks = 20, figsize = (6,4), ylim = (),
+            save = False, path_to_file = "peaks"):
         '''
         Plot 1D Histogram with found peaks.
         Parameters:
@@ -1231,7 +1243,7 @@ class Peaks:
         - path_to_file: path to save .pdf in
         '''
         #
-        plt.rcParams["figure.figsize"] = (10,6)
+        plt.rcParams["figure.figsize"] = figsize
         #
         if self.n_peaks == 0:
             print("Not peaks, no plots :)")
@@ -1258,10 +1270,19 @@ class Peaks:
         # Zoom in on found peaks
         if focus:
             plt.xlim(self.earliest_left_base-200, self.latest_right_base+200)
+
+        # 
+        if len(ylim) != 0:
+            plt.ylim(ylim[0], ylim[1])
         
         # Add axis labels
-        plt.xlabel(f'Time-of-Flight [ns]', fontsize=20)
-        plt.ylabel(f'Counts per bin', fontsize=20)
+        plt.xlabel(f'Time-of-Flight [ns]', fontsize=fs_labels)
+        plt.ylabel(f'Counts per bin', fontsize=fs_labels)
+
+        # Set ticks size 
+        plt.tick_params(axis='both', which='major', labelsize=fs_ticks)
+
+        plt.tight_layout()
 
         if not silent: 
             plt.show()
