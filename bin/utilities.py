@@ -28,21 +28,34 @@ import time
 import sys
 import re
 
-from process import ProcessorBase, MPANTMpa
+from process import ProcessorBase, MPANTMpa, MCS6Lst
 
 FILE_LOCATION = os.path.dirname(__file__)+"/"
 
-def get_time_of_measurement(mpa_file, as_datetime = False):
+def get_time_of_measurement(file, as_datetime = False):
     """
     Fetches time of measurement from data file 
     Parameters:
-        - mpa_file: path to .mpa file
+        - file: path to file (only mpa or lst supported)
         - as_datetime: return time as datetime object, otherwise readable string
     """
-    # Get time of measurement
-    raw_file = MPANTMpa()
-    pars, data, df = raw_file.process(files=[mpa_file])
-    file_base = re.split("/|\.", mpa_file)[-2]
+    # Determine if file is mpa or lst file
+    filetype = file.split(".")[1]
+    if filetype == 'mpa':
+        # Get time of measurement
+        raw_file = MPANTMpa()
+        pars, data, df = raw_file.process(files=[file])
+    elif filetype == 'lst':
+        raw_file = MCS6Lst()
+        with open(file,'rb') as listfile:
+            raw_file.get_time_patch_and_binary(listfile, verbose=False)
+        pars = {}
+        pars[re.split("/|\.", file)[-2]] = raw_file.pars
+    else:
+        print(f"Error: filetype {filetype} not supported.")
+        return 0
+    #
+    file_base = re.split("/|\.", file)[-2]
     for key in pars[file_base].keys():
         # Get start time
         if key == 'cmline0':
@@ -210,7 +223,7 @@ class NUBASE():
             set_index('level_1').rename(columns={'binding_energy_err':'s1n_err'})
         self.ame['s1n_err'] = df['s1n_err']
 
-        #s2n
+        #s2n - This is effectively B(Z,N-2) - B(Z, N)
         df = self.ame.groupby('Z').\
             apply(lambda df: df.binding_energy.shift(2)-df.binding_energy).reset_index(level=[0,1]).\
             set_index('level_1').rename(columns={'binding_energy':'s2n'})
@@ -356,7 +369,7 @@ class NUBASE():
         for i in range(1, len(split_string)-1, 2):
             A = int(split_string[i])
             X = split_string[i+1]
-            if value in ['mass', 'mass_excess', 'binding_energy']:
+            if value in ['mass', 'mass_excess', 'binding_energy', 'half_life']:
                 # Get dataframe index of isotope 
                 idx = -1
                 idx_list = self.ame.index[(self.ame["A"]==A) & (self.ame["element"]==X)].tolist()
@@ -423,6 +436,39 @@ class NUBASE():
                     try:
                         if value == 'excitation_energy': 
                             data = float(str(self.nubase.iloc[idx]['excitation_energy_err']).strip('#'))
+                    except(Exception, TypeError) as err:
+                        print(f"(TypeError in get_value for A={A}, X={X}): {err}")
+                        return -1
+                    fetched_value += data**2
+            #
+            elif value == 'half_life' and state in ['i', 'j', 'k', 'l', 'm', 'n']:
+                # Get dataframe index of isotope 
+                idx = -1
+                idx_list = self.nubase.index[(self.nubase["A"]==A) & (self.nubase["element"]==X) & (self.nubase["s"]==state)].tolist()
+                if len(idx_list) < 1:
+                    print(f"(Error in get_value for A={A}, X={X}): Can't find isotope in NUBASE with given values.")
+                    return -1
+                elif len(idx_list) > 1:
+                    print(f"(Error in get_value for A={A}, X={X}): Found multiple isotopes in NUBASE with given values.")
+                    return -1
+                else:
+                    idx = idx_list[0]
+                #
+                if not error:
+                    # First convert the feteched dataframe entries to str, remove the hashtag, convert to float 
+                    if value == 'half_life':
+                        try:
+                            fetched_value = str(self.nubase.iloc[idx]['half_life'])
+                            # fetched_value = float(str(self.nubase.iloc[idx]['half_life']).strip('#'))
+                        except(Exception, TypeError) as err:
+                            print(f"(TypeError in get_value for A={A}, X={X}): {err}")
+                            return -1
+                else:
+                    data = 0
+                    try:
+                        if value == 'half_life': 
+                            data = str(self.nubase.iloc[idx]['half_life_err']).strip('#')
+                            # data = float(str(self.nubase.iloc[idx]['half_life_err']).strip('#'))
                     except(Exception, TypeError) as err:
                         print(f"(TypeError in get_value for A={A}, X={X}): {err}")
                         return -1
@@ -793,7 +839,7 @@ class MRToFIsotope(MRToFUtils):
             self.exc_energy_NUBASE = self.get_value(isotope, "excitation_energy", state=self.state) 
             if self.exc_energy_NUBASE == -1:
                 print(f"(MRToFIsotope.__init__): Can't find isotope '{self.isotope}-{self.state}' in NUBASE.")
-                return -1   
+                # return -1   
             self.exc_energy_NUBASE_err = self.get_value(isotope, "excitation_energy", state=state, error=True)
             #
             if self.state == 'm':
@@ -804,7 +850,7 @@ class MRToFIsotope(MRToFUtils):
                 self.doublet_key = 'E1'
             else:
                 print(f"(MRToFIsotope.__init__): Unknown isomeric state '{self.state}' (only 'm', 'n').")
-                return -1
+                # return -1
         #
         self.custom_gs = ''
         self.custom_gs_err = ''
@@ -840,7 +886,7 @@ class MRToFIsotope(MRToFUtils):
     def __store_tofs(self, file_isotope='', file_ref1='', file_ref2='',
                         t_isotope='', t_ref1='', t_ref2='',
                         t_isotope_err='', t_ref1_err='', t_ref2_err='',
-                        centroid = 'mu0', online_ref = '', tweak_tofs = [0,0,0],
+                        centroid = 'mu0', online_ref = '', online_ref2 = '', tweak_tofs = [0,0,0],
                         is_doublet = False, dt = '', dt_err = '',
                         ):
         """
@@ -854,7 +900,7 @@ class MRToFIsotope(MRToFUtils):
         if file_isotope != '' and t_isotope == '':
             self.isotope_fit = FitToDict(file_isotope)
             self.__infer_states(self.isotope_fit.fit['RESULTS-TABLE'])
-            self.isotope_gs_t = float(self.isotope_fit.get_val(centroid, 'value')) + tweak_tofs[0]
+            self.isotope_gs_t = float(self.isotope_fit.get_val(centroid, 'value'))# + tweak_tofs[0]
             self.isotope_gs_t_err = float(self.isotope_fit.get_val(centroid, 'error'))
             # If isomer is passed, store isomere ToF or ToF difference as well
             if self.state != 'gs':
@@ -907,6 +953,9 @@ class MRToFIsotope(MRToFUtils):
             self.ref2_fit = FitToDict(file_ref2)
             self.ref2_t = float(self.ref2_fit.get_val('mu0', 'value')) + tweak_tofs[2]
             self.ref2_t_err = float(self.ref2_fit.get_val('mu0', 'error'))
+        elif file_isotope != '' and file_ref2 != '' and t_ref2 == '' and online_ref2 != '':
+            self.ref2_t = float(self.isotope_fit.get_val(online_ref2, 'value')) + tweak_tofs[2]
+            self.ref2_t_err = float(self.isotope_fit.get_val(online_ref2, 'error'))
         elif file_ref2 == '' and t_ref2 != '' and t_ref2_err != '':
             self.ref2_t = t_ref2 + tweak_tofs[2]
             self.ref2_t_err = t_ref2_err
@@ -941,13 +990,18 @@ class MRToFIsotope(MRToFUtils):
             - m0, m0_err: Ground state mass in keV
         Returns error on excitation energy in keV
         ''' 
-        # Simplified form assuming dt<<t_0
-        return math.sqrt(dt_err**2 + ((dt * m0_err)/m0)**2) * 2 * m0/t0
+        # Full form
+        part1 = ( ( 2*dt/t0**2 + 2/t0 ) * m0 * dt_err ) ** 2
+        part2 = ( ( -2*dt**2/t0**3 - 2*dt/t0**2 ) * m0 * t0_err ) ** 2
+        part3 = ( ( dt**2/t0**2 + 2*dt/t0 ) * m0_err ) ** 2
+        return math.sqrt(part1+part2+part3)
+        # Simplified form assuming dt<<t_0 and m0_err<<m0
+        # return math.sqrt(dt_err**2 + ((dt * m0_err)/m0)**2) * 2 * m0/t0
     
     def calc_mass(self, file_isotope='', file_ref1='', file_ref2='',
                         t_isotope='', t_ref1='', t_ref2='',
                         t_isotope_err='', t_ref1_err='', t_ref2_err='',
-                        centroid = 'mu0', online_ref = '',
+                        centroid = 'mu0', online_ref = '', online_ref2 = '',
                         tweak_tofs = [0,0,0],
                         print_results = False):
         '''
@@ -957,11 +1011,12 @@ class MRToFIsotope(MRToFUtils):
             - t_isotope, t_ref1, t_ref2: time-of-flights to be used. Overwrites the ToFs fetched from fit files
             - centroid: time-of-flight centroid to be used to calculate mass ['mu0', 'numerical_mean']
             - tweak_tofs: array [tof_isotope, tof_ref1, tof_ref2] that add tof to the extracted values from the fit files to tweak the mass and see influence of tof drifts
+            - online_ref and online_ref2: centroid of online references 1 and 2
             - print_results: prints short formatted results of calculation
         '''
         # Store ToFs
         self.__store_tofs(file_isotope, file_ref1, file_ref2,t_isotope, t_ref1, t_ref2, t_isotope_err, 
-                            t_ref1_err, t_ref2_err, centroid, online_ref, tweak_tofs)
+                            t_ref1_err, t_ref2_err, centroid, online_ref, online_ref2, tweak_tofs)
         #
         self.C_tof = self.calc_C_ToF(self.isotope_gs_t, self.ref1_t, self.ref2_t)
         self.C_tof_err = self.calc_C_ToF_err(t=self.isotope_gs_t, t_err=self.isotope_gs_t_err,
@@ -990,7 +1045,7 @@ class MRToFIsotope(MRToFUtils):
     def calc_exc_energy(self, file_isotope='', file_ref1='', file_ref2='',
                         t_isotope='', t_ref1='', t_ref2='',
                         t_isotope_err='', t_ref1_err='', t_ref2_err='',
-                        centroid = 'mu0', online_ref = '', tweak_tofs = [0,0,0],
+                        centroid = 'mu0', online_ref = '', online_ref2 = '', tweak_tofs = [0,0,0],
                         custom_gs = '', custom_gs_err = '',
                         is_doublet = False,
                         print_results = False):
@@ -1008,7 +1063,7 @@ class MRToFIsotope(MRToFUtils):
         '''
         # Store ToFs
         self.__store_tofs(file_isotope, file_ref1, file_ref2,t_isotope, t_ref1, t_ref2, t_isotope_err, 
-                            t_ref1_err, t_ref2_err, centroid, online_ref, tweak_tofs, is_doublet)
+                            t_ref1_err, t_ref2_err, centroid, online_ref, online_ref2, tweak_tofs, is_doublet)
         #
         # Calculation of excitation energy via C_tof differences e.g. mass differences
         if not is_doublet:
@@ -1161,7 +1216,7 @@ class Peaks:
         #
         return round((maxx-minn)/0.8/bins)
     
-    def find_peaks(self, bins=10, peak_threshold = 0.002, peak_min_distance = 5, peak_min_height = 10, peak_width_inbins = (3,100), 
+    def find_peaks(self, bins=10, peak_threshold = None, peak_min_distance = None, peak_min_height = None, peak_width_inbins = None, 
                    peak_prominence = None, peak_wlen = None):
         """  
         Arguments:
@@ -1180,8 +1235,9 @@ class Peaks:
         x_proj_for_pfind = self.file.tof.value_counts(bins=self.get_binning(self.bins)).sort_index()
         y_proj_for_pfind = self.file.sweep.value_counts(bins=self.get_binning(self.bins)).sort_index()
         # Do the peak finding
-        self.x_proj_peaks, self.peaks_info = sc.signal.find_peaks(x_proj_for_pfind, threshold=peak_threshold,
-                                             distance=peak_min_distance,
+        self.x_proj_peaks, self.peaks_info = sc.signal.find_peaks(x_proj_for_pfind, 
+                                             threshold=peak_threshold, # Required vertical distance to its direct neighbouring samples, pretty useless
+                                             distance=peak_min_distance, # dinstance in samples, not in value! changes when rebinned! 
                                              height=peak_min_height,
                                              width=peak_width_inbins,
                                              prominence=peak_prominence,
@@ -1230,7 +1286,8 @@ class Peaks:
                 
     def plot(self, bins = 10, lines = True, focus=False, log=False, silent = False, 
             fs_labels = 25, fs_ticks = 20, figsize = (6,4), ylim = (),
-            save = False, path_to_file = "peaks"):
+            save = False, path_to_file = "peaks", style = 'errorbar', add_vlines = [],
+            external = False, fig = None, ax = None):
         '''
         Plot 1D Histogram with found peaks.
         Parameters:
@@ -1241,9 +1298,13 @@ class Peaks:
         - silent: if True, shows plot on canvas
         - save: if True, uses path_to_file to save plot as .pdf
         - path_to_file: path to save .pdf in
+        - add_vlines: array of tof values where vlines should be added
         '''
         #
-        plt.rcParams["figure.figsize"] = figsize
+        # if not external plotting
+        if not external:
+            plt.rcParams["figure.figsize"] = figsize
+            fig, ax = plt.subplots(nrows=1, ncols=1, figsize=figsize)
         #
         if self.n_peaks == 0:
             print("Not peaks, no plots :)")
@@ -1253,46 +1314,68 @@ class Peaks:
         n, xe = np.histogram(xdata, bins=self.get_binning(bins))
         cx = 0.5 * (xe[1:] + xe[:-1])
         dx = np.diff(xe)
-        plt.errorbar(cx, n, n ** 0.5, fmt="ok", zorder=1)
-        plt.plot(xdata, np.zeros_like(xdata)-5, "|", alpha=0.1, label = "ToF Data", zorder = 3)
+
+        # Plot data
+        if style == 'errorbar':
+            # use sqrt(n) as error, if n==1 use smaller error to avoid having inifite long error bars in log-scale
+            ax.errorbar(cx, n, [val ** 0.5 if val != 1 else 0.75 for val in n] ,
+                    ecolor='black', elinewidth=1,  
+                    fmt="ok", zorder=1, label=f"Data (bins={bins})")
+            # ax.plot(xdata, np.zeros_like(xdata)-5, "|", alpha=0.1, label = "ToF Data", zorder = 3)
+            
+        elif style == 'hist':
+            ax.hist((xdata), bins=self.get_binning(bins=bins), color='grey', edgecolor='black', linewidth=0.1, label=f"Data (bins={bins})")
+
+
+        # plt.errorbar(cx, n, n ** 0.5, fmt="ok", zorder=1)
         #
         if log:
-            plt.yscale('log')
+            ax.set_yscale('log')
         #
         if lines:
             for i in range(self.n_peaks):
-                plt.axvline(self.pos[i], c='r', linewidth=1, zorder=3)
+                ax.axvline(self.pos[i], c='r', linewidth=1, zorder=3)
         
         xm = np.linspace(xe[0], xe[-1], num=1000)
         plt.legend();
         # plt.xlim(peaks.pos[0]-300, peaks.pos[0]+300)
+
+        # add vlines
+        for vline in add_vlines:
+            ax.axvline(vline, c='b', linewidth=1, zorder=3, ls = '--')
+
         
         # Zoom in on found peaks
         if focus:
-            plt.xlim(self.earliest_left_base-200, self.latest_right_base+200)
+            ax.set_xlim(self.earliest_left_base-200, self.latest_right_base+200)
 
         # 
         if len(ylim) != 0:
-            plt.ylim(ylim[0], ylim[1])
+            ax.set_ylim(ylim[0], ylim[1])
         
         # Add axis labels
-        plt.xlabel(f'Time-of-Flight [ns]', fontsize=fs_labels)
-        plt.ylabel(f'Counts per bin', fontsize=fs_labels)
+        ax.set_xlabel(f'Time-of-Flight [ns]', fontsize=fs_labels)
+        ax.set_ylabel(f'Counts per bin', fontsize=fs_labels)
 
         # Set ticks size 
-        plt.tick_params(axis='both', which='major', labelsize=fs_ticks)
+        ax.tick_params(axis='both', which='major', labelsize=fs_ticks)
 
-        plt.tight_layout()
+        if not external:
+            plt.tight_layout()
 
         if not silent: 
             plt.show()
             # plt.clf()
+
+        # return axis if external plotting is uesd
+        if external:
+            return fig, ax
         #
         if save:
             plt.savefig(path_to_file+".pdf", dpi=300)
             plt.clf()
         
-    def plot2d(self, bins=500, focus=-1, log=False):
+    def plot2d(self, bins=500, y_bins=1, focus=-1, log=False):
         """
         Plot 2D Histogram with found peaks.
         """
@@ -1301,7 +1384,7 @@ class Peaks:
         sweep = self.file.sweep
 
         # Create plot canvas
-        fig, ((ax_x, blank),(ax_0, ax_y)) = plt.subplots(2,2,sharex='col',sharey='row', figsize=(9,9),
+        fig, ((ax_x, ax_y_hist),(ax_0, ax_y)) = plt.subplots(2,2,sharex='col',sharey='row', figsize=(9,9),
                                                  gridspec_kw={'height_ratios':[1,4],
                                                              'width_ratios':[4,1],
                                                              'hspace': 0.05,
@@ -1325,6 +1408,12 @@ class Peaks:
         if focus != -1:
             plt.xlim(self.pos[focus]-300, self.pos[focus]+300)
 
+        # Counts histogram
+        bar_x = self.file.sweep.value_counts().value_counts().sort_index().index
+        bar_y = self.file.sweep.value_counts().value_counts().sort_index()
+        ax_y_hist.bar(bar_x, bar_y)
+        # ax_y_hist.set_yscale("linear")
+
         #
         ax_0.set_xlabel(f'Time-of-Flight [ns]', fontsize=20)
         ax_0.set_ylabel(f'Rolling sweep number', fontsize=20)
@@ -1332,6 +1421,7 @@ class Peaks:
         ax_y.set_xlabel('# / 10 sw.', fontsize=20)
         ax_y.xaxis.set_ticks_position('top')
         ax_y.xaxis.set_label_position('top')
+        ax_y.set_xlim(0,20)
         #
         plt.show()
 
@@ -1628,40 +1718,50 @@ class softCool(Peaks, ProcessorBase):
         # Export the cooled df
         return self.coolfile
         
-    def plot2d(self, bins=500, focus=-1, log=False):
+    def plot2d(self, bins=500, focus=False, log=False, alpha=0.1, lw = 2):
         """
         Plot the 2d histograms to compare the corrected and not corrected values
         Parameters:
             - bins: number of bins to rebin
             - focus: peak number to focus on. Defaults to -1 (no focus)
             - log: log scale
+            - alpha: alpha for scatter plot
+            - linewidth for vertical markers
         """
-        fig, (ax0, ax1) = plt.subplots(1,2,sharey='row', figsize=(7,7))
+        fig, (ax0, ax1) = plt.subplots(1,2,sharey='row', sharex=True, figsize=(7,7))
         tof = self.file.tof
         sweep = self.file.sweep
         # Plot unbinned and un-corrected data
-        ax0.plot(tof, sweep, 'o', alpha=0.05, ms=2, label='unbinned data')
+        ax0.plot(tof, sweep, 'o', alpha=alpha, ms=2, label='unbinned data')
         # Plot correction factors
         y_corr = range(int(self.coolfile.sweep.iloc[0]),int(self.coolfile.sweep.iloc[0])+len(self.corr_factors)*self.chunk_size, self.chunk_size)
         x_corr = self.corr_factors
-        ax0.plot(x_corr, y_corr, c='r', linewidth=1, zorder=3)
+        ax0.plot(x_corr, y_corr, c='r', linewidth=lw, zorder=3)
         # Plot corrected data
         tof = self.coolfile.tof
         sweep = self.coolfile.sweep
-        ax1.plot(tof, sweep, 'o', alpha=0.05, ms=2, label='unbinned data')
+        ax1.plot(tof, sweep, 'o', alpha=alpha, ms=2, label='unbinned data')
         if self.post_cool:
             y_corr = range(int(self.coolfile.sweep.iloc[0]),int(self.coolfile.sweep.iloc[0])+len(self.corr_factors)*self.chunk_size, self.chunk_size)
             x_corr = self.corr_factors
-            ax1.plot(x_corr, y_corr, c='r', linewidth=1, zorder=3)
+            ax1.plot(x_corr, y_corr, c='r', linewidth=lw, zorder=3)
         #
         # for i in range(self.n_peaks):
-        #     plt.axvline(self.pos[i], c='r', linewidth=1, zorder=3)
-        if focus!=-1:
-            ax0.set_xlim(self.peaks.pos[focus]-300, self.peaks.pos[focus]+300)
-            ax1.set_xlim(self.peaks.pos[focus]-300, self.peaks.pos[focus]+300)
+        #     plt.axvline(self.pos[i], c='r', linewidth=lw, zorder=3)
+
+        # Plot ToF to align around
+        ax0.axvline(self.tof, c='b', linewidth=lw, zorder=3, ls='-')
+        ax0.axvline(self.tof - self.tof_cut_left, c='b', linewidth=lw, zorder=3, ls='--')
+        ax0.axvline(self.tof + self.tof_cut_right, c='b', linewidth=lw, zorder=3, ls='--')
+
+        ax1.axvline(self.tof, c='b', linewidth=lw, zorder=3, ls='-')
 
         plt.xlabel("Time-of-Flight [ns]")
         plt.ylabel("Rolling sweep number")
+
+        if not focus:
+            ax0.set_xlim(self.tof-1500, self.tof+1500)
+            ax1.set_xlim(self.tof-1500, self.tof+1500)
 
         plt.tight_layout()
         plt.show()
