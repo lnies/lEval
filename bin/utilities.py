@@ -481,6 +481,7 @@ class NUBASE():
         if not error:
             return fetched_value
         else: 
+            # if error, return sqrt of quadratically summed errors of single values (only one value for single ions, or more of molecules)
             return math.sqrt(fetched_value)
 
 class FitToDict:
@@ -638,6 +639,8 @@ class MRToFUtils(NUBASE):
         self.m_85Rb_err = self.get_value('85Rb', 'mass', error=True)
         self.m_133Cs = self.get_value('133Cs', 'mass')
         self.m_133Cs_err = self.get_value('133Cs', 'mass', error=True)
+        #
+        self.tof_calib_loaded = False
 
     # Functionality
 
@@ -799,6 +802,48 @@ class MRToFUtils(NUBASE):
         del_m2 = C_tof**2 * (1-m2**(-1/2)) + C_tof + 1/4 * (1+m2**(-1/2))
         #
         return math.sqrt( (del_C_tof*C_tof_err)**2 + (del_m1 * m1_err)**2 + (del_m2 * m2_err)**2 )
+
+    #
+
+    def load_tof_calib(self, file):
+        """
+        Loads ToF calibration parameters from an ISOLTRAP ToF calibration excel sheet. Needs always
+        to be in the same format, otherwise the absolute references in this function won't work.
+        Tested with a file from 2015 and 2022, both worked.
+        """
+        data = pd.read_excel(file, 'new tof calibration', header=0)#, index_col=None, usecols = "Q", header = 0, nrows=0)
+        m0 = data["flight time outside MR-TOF"][0],
+        m1 = data["flight time outside MR-TOF"][1],
+        tofm0_0 = data["Unnamed: 28"][0]
+        tofm1_0 = data["Unnamed: 28"][1]
+        tofm0_1 = data.columns[18]
+        tofm1_1 = data[data.columns[18]][0]
+        a0 = data["Unnamed: 24"][0]
+        b0 = data["Unnamed: 24"][1]
+        self.a1 = data.columns[21]
+        self.b1 = data[data.columns[21]][0]
+        self.revN2 = data["revolutions at calibration"][0] # number of revs for calibration
+        self.F1 = float(data.columns[11]) # Flight time into center of isep cavity, aka pulse down delay
+        self.MCP = float(data[data.columns[11]][0]) # Flight time from center of isep cavity to detector, changes between EMP2h and EMP3h
+        #
+        self.tof_calib_loaded = True
+
+    def calc_ToF(self, m, nrevs = 1000, a0=None, b0=None, a1=None, b1=None, revsN2=None):
+        """
+        Calculates the ToF for a mass m at nrevs for given calibration parameters. Those can either 
+        be passed directly (to be implemented) or loaded through load_tof_calib(self)
+        inputs:
+            m: scalar or array like, mass in atomic mass units
+            nrevs: int number of revs
+        """
+        #
+        if not self.tof_calib_loaded:
+            print("(MRToFUtils:calc_ToF)ToF Calibration file not loaded!")
+            return False
+        # Calculate trapping time TG1: total tof for mass m at calibration number of revs - flight time outside mrtof divided by actual number of revs
+        TG1 = ((self.a1 * np.sqrt(m) + self.b1) - self.F1 - self.MCP ) / int(self.revN2) * int(nrevs) 
+        tof = TG1 + self.F1 + self.MCP 
+        return tof
 
 class MRToFIsotope(MRToFUtils):
     '''
