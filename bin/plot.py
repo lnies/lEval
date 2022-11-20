@@ -33,18 +33,31 @@ def custom_colors():
 						'red': "#FF2D55", 
 						'blue': "#00A2FF",
 						'orange': "#FFCC00", 
-						'green': "#61D935", 
+						'green': "#61D935",
+						'lightgreen': "#a9ff8a", 
 						'grey': "#C0C0C0", 
-						'purple': "#C177DA", 
+						'purple': "#C177DA",
+						'lightpurple': "#e8c1f5",
 						'lightblue': "#6FF1E9",
+						'lightlightblue': "#d5f7f5",
+		},
+		'indiumprl':
+		{
+			'black': "#000000",
+			'red': "#FF2D55", 
+			'blue': "#00A2FF",
+			'orange': "#FFCC00", 
+			'green': "#4DAF4A",
+			'purple': "#984EA3",
 		}
+
 	}
 	return colors
 
 def simple_error_plt(y, y_err, x='', x_labels='', \
 					 label = ["ISOLTRAP"], x_label='', y_label=[''], title='', \
 					 ref_value=None, ref_err=None, ref_legend_label='AME20 Error', ref_axis=0,
-					 with_lines = False,
+					 with_lines = False, h_lines = [],
 					 x_share = False, figsize = (4.5*1.5, 4.5),
 					 ):
 	'''
@@ -57,6 +70,7 @@ def simple_error_plt(y, y_err, x='', x_labels='', \
 	- x_label: x-axis labeling
 	- y_label: y-axis labeling
 	- with_lines: if True, connects scatter data points with lines
+	- h_lines: array-like. Draws in hlines
 	- title: plot title
 	'''
 	colors = custom_colors()
@@ -71,6 +85,7 @@ def simple_error_plt(y, y_err, x='', x_labels='', \
 		x = x
 	else:
 		print("Wrong x-data passed. Can only pass either x or x_labels")
+		return 0
 
 	# Loop through list of arrays passed
 	twins = []
@@ -78,14 +93,16 @@ def simple_error_plt(y, y_err, x='', x_labels='', \
 		# If x_labels are passed
 		if len(x_labels) != 0:
 			x_plot = np.arange(0,len(x_labels),1)
+			ax.set_xticklabels(labels=x_labels)
+
 		else:
 			x_plot = x[i]
 		#
 		if i == 0:
 			ax.errorbar(x_plot, y[i], y_err[i],
-					   fmt='o', color=colors['Jo-s_favs'][colors_keys[i]], zorder = 2, 
-					   label=label[i], markeredgewidth=2, mec = 'black',
-					   fillstyle='full', mfc="black", linewidth=2, ms =10
+				fmt='o', color=colors['Jo-s_favs'][colors_keys[i]], zorder = 2, 
+				label=label[i], markeredgewidth=2, mec = 'black',
+				fillstyle='full', mfc="black", linewidth=2, ms =10
 			)
 			if with_lines:
 				ax.plot(x_plot, y[i], "-", color=colors['Jo-s_favs'][colors_keys[i]], zorder = 2, linewidth=2)
@@ -145,6 +162,12 @@ def simple_error_plt(y, y_err, x='', x_labels='', \
 				twins[ref_axis-1].fill_between(x_plot, ref_value-ref_err, ref_value+ref_err, facecolor='0.5', alpha=0.5,
 						label = ref_legend_label, zorder = 1)
 				twins[ref_axis-1].plot(x_plot, [ref_value for value in x_plot], color='grey', zorder = 1)
+
+
+	# h_lines
+	# if len(hlines) != 0:
+	# 	for line in h_lines:
+
 
 
 	# plt.axhspan(ref_value-ref_err, ref_value+ref_err, facecolor='0.5', alpha=0.5)
@@ -241,3 +264,86 @@ def simple_fit_plot(df, fit_files, bins = 1, log=False, file_out=False, legend=T
 		if file_out != False:
 			print(f"Plot fit save as {file_out}")
 			plt.savefig(file_out, dpi=300)
+
+
+def plot_laser_on_off(df, bins = 10, n_per_laser = 100):
+	"""  
+	Wrapper for plotting laser-on-off data (shot-to-shot basis)
+		- bins: number of bins to rebin. Defaults to 10
+		- n_per_laser: number of laser on / laser on shots per slice (MCS slice)
+	"""
+	
+	# Get binning of raw data
+	# Get min and max tof from data frame
+	minn = df.tof.min()
+	maxx = df.tof.max()
+	# Avoid having empty binning when maxx is equal to minn
+	if minn == maxx:
+		maxx += 1
+	#
+	binning = round((maxx-minn)/0.8/bins)	
+
+	fs_labels = 20
+	fs_ticks = 20
+	
+	df['sweeps_floored'] = np.floor(df.sweep/n_per_laser)
+
+	xdata = df.tof
+	n, xe = np.histogram(xdata, bins=binning, range=(df.tof.min(), df.tof.max()))
+	cx = 0.5 * (xe[1:] + xe[:-1])
+	dx = np.diff(xe)
+
+	xdata1 = df.tof[df['sweeps_floored']%2==0] #df.tof[df['sweeps_floored']%2!=0]
+	n1, xe1 = np.histogram(xdata1, bins=binning, range=(df.tof.min(), df.tof.max()))
+	cx1 = 0.5 * (xe1[1:] + xe1[:-1])
+	dx1 = np.diff(xe1)
+
+	xdata2 = df.tof[df['sweeps_floored']%2!=0] #df.tof[df['sweeps_floored']%2!=0]
+	n2, xe2 = np.histogram(xdata2, bins=binning, range=(df.tof.min(), df.tof.max()))
+	cx2 = 0.5 * (xe2[1:] + xe2[:-1])
+	dx2 = np.diff(xe2)
+
+	#use sqrt(n) as error, if n==1 use smaller error to avoid having inifite long error bars in log-scale
+	n_sub = n1-n2
+	plt.step(cx1, n_sub, #[val ** 0.5 if val != 1 else 0.75 for val in n] ,
+		color='r', label=f"Laser On - Laser off (bins={bins})",
+		 linewidth=4, zorder = 2,
+		#fmt="ok", zorder=2, label=f"Laser On - Laser off (bins={bins})")
+	   )
+	plt.step(cx, n, #[val ** 0.5 if val != 1 else 0.75 for val in n] ,
+		color='black', label=f"Laser On",
+		 linewidth=4, zorder = 1,
+		#fmt="ok", zorder=2, label=f"Laser On - Laser off (bins={bins})")
+	   )
+
+
+	# plt.errorbar(cx, n, [val ** 0.5 if val != 1 else 0.75 for val in n] ,
+	#         ecolor='b', elinewidth=1, color='b', 
+	#         fmt="ok", zorder=1, label=f"Laser on (bins={bins})")
+	# plt.errorbar(cx1, n_sub, [val ** 0.5 if val != 1 else 0.75 for val in n] ,
+	#         ecolor='r', elinewidth=1, color='r', mfc='r',
+	#         fmt="ok", zorder=2, label=f"Laser On - Laser off (bins={bins})")
+
+	# plt.errorbar(cx, n, [val ** 0.5 if val != 1 else 0.75 for val in n] ,
+	#         ecolor='b', elinewidth=1, color='b', 
+	#         fmt="ok", zorder=1, label=f"Laser on (bins={bins})")
+	# plt.plot(xdata, np.zeros_like(xdata)-5, "|", alpha=0.1, label = "ToF Data", zorder = 3)
+
+	# # plt.hist((xdata), bins=get_binning(df = df, bins=bins), 
+	# #          color='grey', edgecolor='black', linewidth=0.1, label=f"Data (bins={bins})")
+
+
+	# # plt.errorbar(cx, n, n ** 0.5, fmt="ok", zorder=1)
+	# #
+	# xm = np.linspace(xe[0], xe[-1], num=1000)
+	plt.legend();
+	# # plt.xlim(peaks.pos[0]-300, peaks.pos[0]+300)
+
+	# # Add axis labels
+	plt.xlabel(f'Time-of-Flight [ns]', fontsize=fs_labels)
+	plt.ylabel(f'Counts per bin', fontsize=fs_labels)
+
+	# # Set ticks size 
+	# plt.tick_params(axis='both', which='major', labelsize=fs_ticks)
+
+	plt.tight_layout()
