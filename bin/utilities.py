@@ -628,6 +628,7 @@ class MRToFUtils(NUBASE):
         # Store fundamental constants
         self.c = 299792458 # m/s
         self.e = 1.602176634e-19 # C
+        self.e_in_u = 0.00054857990943 # electron mass in atomic mass units
         self.u = 931494.10242 # keV/c**2
         self.u_err = 000.00000028 # MeV/c**2
         # Store some prominent masses
@@ -818,13 +819,11 @@ class MRToFUtils(NUBASE):
         tofm1_0 = data["Unnamed: 28"][1]
         tofm0_1 = data.columns[18]
         tofm1_1 = data[data.columns[18]][0]
-        a0 = data["Unnamed: 24"][0]
-        b0 = data["Unnamed: 24"][1]
+        self.a0 = data["Unnamed: 30"][0]
+        self.b0 = data["Unnamed: 30"][1]
         self.a1 = data.columns[21]
         self.b1 = data[data.columns[21]][0]
         self.revN2 = data["revolutions at calibration"][0] # number of revs for calibration
-        self.F1 = float(data.columns[11]) # Flight time into center of isep cavity, aka pulse down delay
-        self.MCP = float(data[data.columns[11]][0]) # Flight time from center of isep cavity to detector, changes between EMP2h and EMP3h
         #
         self.tof_calib_loaded = True
 
@@ -840,9 +839,12 @@ class MRToFUtils(NUBASE):
         if not self.tof_calib_loaded:
             print("(MRToFUtils:calc_ToF)ToF Calibration file not loaded!")
             return False
+        #
+        F1 = (self.a0 * np.sqrt(m - self.e_in_u) + self.b0) * 3/4  # Flight time into center of isep cavity, aka pulse down delay. Scaling factor 3/4 depends on location of detector from which total flight time outside of device is determined.
+        MCP = 1/3*F1 # Flight time from center of isep cavity to detector, changes between EMP2h and EMP3h
         # Calculate trapping time TG1: total tof for mass m at calibration number of revs - flight time outside mrtof divided by actual number of revs
-        TG1 = ((self.a1 * np.sqrt(m) + self.b1) - self.F1 - self.MCP ) / int(self.revN2) * int(nrevs) 
-        tof = TG1 + self.F1 + self.MCP 
+        TG1 = ((self.a1 * np.sqrt(m) + self.b1) - F1 - MCP ) / int(self.revN2) * int(nrevs) 
+        tof = TG1 + F1 + MCP 
         return tof
 
 class MRToFIsotope(MRToFUtils):
