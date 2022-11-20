@@ -18,8 +18,6 @@ from chardet import detect
 import re
 import datetime
 
-
-
 class CustomParser(ConfigParser):
 	"""
 	Original from https://gitlab.cern.ch/datanaso/dEval/-/blob/master/etc/utils.py
@@ -74,6 +72,13 @@ class ProcessorBase():
 		#
 		return df
 
+	def parse_header(self, key, txt):
+		parser = CustomParser(strict=False)
+		parser.read_file(StringIO(txt))
+		tmp = parser.as_dict()
+		self.pars[key] = dict(**tmp['CHN1'])
+		self.pars[key].update(**tmp['MPA4A'])
+
 class MCS6Lst(ProcessorBase):
 	'''
 	Process each list file contained in array of lst_files
@@ -94,6 +99,7 @@ class MCS6Lst(ProcessorBase):
 		"""
 		Initialize the conversion dataframe and some other varaibles
 		"""
+		ProcessorBase.__init__(self) # self.map_files = file_array
 		self.files = []
 		#-------------------------Create a dataframe containing the conversion table from the MCS6A manual--------------------------------------#
 		Time_Patch_Value = ['0', '5', '1', '1a', '2a', '22', '32','2','5b','Db','f3','43','c3','3']
@@ -247,12 +253,27 @@ class MCS6Lst(ProcessorBase):
 			mapped_file : memore map of the input listfile
 			time_patch : string code indicating the format in which the data are written (see manual)
 		'''
+
+		#
 		mapped_file = mmap.mmap(listfile.fileno(), 0, access=mmap.ACCESS_READ)
-		search_dict = {'section' : '[DATA]' , 'list_file_type' : 'time_patch'}
+		search_dict = {'section' : '[DATA]' , 'list_file_type' : 'time_patch', 'file_date' : 'cmline0', 'report-file': 'REPORT-FILE'}
 		#-----------------set file index to time patch code -----------------#
 		pos_type_from = mapped_file.find(search_dict['list_file_type'].encode('ascii'))+len(search_dict['list_file_type'])+1
 		mapped_file.seek(pos_type_from)
 		time_patch = mapped_file.readline().strip('\r\n'.encode('ascii'))
+		self.pars['time_patch'] = time_patch.decode()
+		#-----------------set file index to time patch code -----------------#
+		mapped_file = mmap.mmap(listfile.fileno(), 0, access=mmap.ACCESS_READ)
+		pos_type_from = mapped_file.find(search_dict['file_date'].encode('ascii'))+len(search_dict['file_date'])+1
+		mapped_file.seek(pos_type_from)
+		file_date = mapped_file.readline().strip('\r\n'.encode('ascii'))
+		self.pars['cmline0'] = file_date.decode()
+		#-----------------set file index to time patch code -----------------#
+		mapped_file = mmap.mmap(listfile.fileno(), 0, access=mmap.ACCESS_READ)
+		pos_type_from = mapped_file.find(search_dict['report-file'].encode('ascii'))+len(search_dict['report-file'])+1
+		mapped_file.seek(pos_type_from)
+		report_file = mapped_file.readline().strip('\r\n'.encode('ascii'))
+		self.pars['report-file'] = report_file.decode()
 		#-----------set file index to beginning of DATA-----------------------------------#
 		pos_data_from = mapped_file.find(search_dict['section'].encode('ascii'))
 		mapped_file.seek(pos_data_from)
@@ -304,6 +325,7 @@ class MPANTMpa(ProcessorBase):
 	"""
 	def __init__(self):
 		ProcessorBase.__init__(self) # self.map_files = file_array
+		self.files = []
 
 	def read(self, mpa):
 		"""
@@ -318,13 +340,6 @@ class MPANTMpa(ProcessorBase):
 				self.parse_header(name, raw_header)
 				self.df_dict[name] = pd.read_csv(StringIO(raw_data), delimiter=' ', usecols=(0, 1, 2), header=None, names=['tof', 'sweep', 'counts'])
 				self.data[name] = self.df_dict[name].to_numpy()
-
-	def parse_header(self, key, txt):
-		parser = CustomParser(strict=False)
-		parser.read_file(StringIO(txt))
-		tmp = parser.as_dict()
-		self.pars[key] = dict(**tmp['CHN1'])
-		self.pars[key].update(**tmp['MPA4A'])
 
 	def process(self, files, to_csv = False):
 		'''
@@ -348,7 +363,7 @@ class MPANTMpa(ProcessorBase):
 				print(f"(MPANTMpa.process): WARNING: file {name} not processed. Empty?")
 				continue
 			#
-			self.df_dict[name].tof = self.df_dict[name].tof * float(self.pars[name]['calfact']) + float(self.pars[name]['caloff'])
+			self.df_dict[name].tof = (self.df_dict[name].tof - 0.5) * float(self.pars[name]['calfact']) + float(self.pars[name]['caloff'])
 			if to_csv:
 				self.df_dict[name].to_csv('{}/{}.csv'.format(os.path.split(f)[0],os.path.splitext(os.path.basename(f))[0]), index=False)
 		#
@@ -522,6 +537,8 @@ class MM8():
 					for arg in parser.options(section):
 						if (section == 'Clean') or (section == 'MCA') or (section == 'Excit') or ('SCAN' in section):
 							pars[section.lower() + '_' + arg] = parser.get(section, arg)
+						elif (section == 'DATAFILENAME'):
+							pars['filename'] = parser.get(section, arg)
 						else:
 							pars[arg] = parser.get(section, arg)
 				return pars
@@ -553,7 +570,7 @@ class MM8():
 		Add field 'dt' to all entries in 'self.header_dict' as datetime converted time of measurement start
 		"""
 		for mm_file in self.header_dict:
-			file = self.header_dict[mm_file]['d'].split("_")[1].split(".")[0].split("\\")[-1]
+			file = self.header_dict[mm_file]['filename'].split("_")[1].split(".")[0].split("\\")[-1]
 			#
 			date_string = file[3:]
 			# 
@@ -565,7 +582,6 @@ class MM8():
 			second = date_string[6:8]
 			dt = datetime.datetime.strptime(f"{month}/{day}/{year} {hour}:{minute}:{second}", '%m/%d/%Y %H:%M:%S')
 			self.header_dict[mm_file]['datetime'] = dt
-
 
 	def process(self, files, to_csv=True):
 		"""
