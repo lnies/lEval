@@ -627,6 +627,7 @@ class MRToFUtils(NUBASE):
         # Store fundamental constants
         self.c = 299792458 # m/s
         self.e = 1.602176634e-19 # C
+        self.e_in_u = 0.00054857990943 # electron mass in atomic mass units
         self.u = 931494.10242 # keV/c**2
         self.u_err = 000.00000028 # MeV/c**2
         # Store some prominent masses
@@ -638,6 +639,9 @@ class MRToFUtils(NUBASE):
         self.m_85Rb_err = self.get_value('85Rb', 'mass', error=True)
         self.m_133Cs = self.get_value('133Cs', 'mass')
         self.m_133Cs_err = self.get_value('133Cs', 'mass', error=True)
+        #
+        self.tof_calib_loaded = False
+
 
     # Functionality
 
@@ -799,6 +803,75 @@ class MRToFUtils(NUBASE):
         del_m2 = C_tof**2 * (1-m2**(-1/2)) + C_tof + 1/4 * (1+m2**(-1/2))
         #
         return math.sqrt( (del_C_tof*C_tof_err)**2 + (del_m1 * m1_err)**2 + (del_m2 * m2_err)**2 )
+
+    # Peak identification
+
+    def __calc_tof_params(self, m0, m1, tof0, tof1):
+        """
+        calculates the ToF parameters based on tofs and masses of two calibrants
+        """
+        a = (tof0-tof1)/(math.sqrt(m0)-math.sqrt(m1))
+        b = tof0 - a * math.sqrt(m0)
+        return a, b
+
+    def load_tof_calib(self, file):
+        """
+        Loads ToF calibration parameters from an ISOLTRAP ToF calibration excel sheet. Needs always
+        to be in the same format, otherwise the absolute references in this function won't work.
+        Tested with a file from 2015 and 2022, both worked.
+        """
+        data = pd.read_excel(file, 'new tof calibration', header=0)#, index_col=None, usecols = "Q", header = 0, nrows=0)
+        self.m0 = float(data.columns[16])
+        self.m1 = float(data[data.columns[16]][0])
+        self.tofm0_0 = float(data["Unnamed: 28"][0])
+        self.tofm1_0 = float(data["Unnamed: 28"][1])
+        self.tofm0_1 = float(data.columns[18])
+        self.tofm1_1 = float(data[data.columns[18]][0])
+        # print(self.m0, self.m1, self.tofm0_0, self.tofm1_0, self.tofm0_1, self.tofm1_1)
+        self.a0, self.b0 = self.__calc_tof_params(self.m0, self.m1, self.tofm0_0, self.tofm1_0)
+        self.a1, self.b1 = self.__calc_tof_params(self.m0, self.m1, self.tofm0_1, self.tofm1_1)
+        self.revN2 = int(data["revolutions at calibration"][0]) # number of revs for calibration
+        #
+        self.tof_calib_loaded = True
+
+    def __calc_tof_outside_device(self, m, det_loc='EMP2h'):
+        """
+        Calculates the relevant ToFs outside the MR-ToF MS
+        """
+        F1 = (self.a0 * np.sqrt(m - self.e_in_u) + self.b0) * 3/4  # Flight time into center of isep cavity, aka pulse down delay. Scaling factor 3/4 depends on location of detector from which total flight time outside of device is determined.
+        MCP = 1/3*F1 # Flight time from center of isep cavity to detector, changes between EMP2h and EMP3h
+        return F1, MCP
+
+    def calc_ToF(self, m, nrevs = 1000, a0=None, b0=None, a1=None, b1=None, revsN2=None):
+        """
+        Calculates the ToF for a mass m at nrevs for given calibration parameters. Those can either 
+        be passed directly (to be implemented) or loaded through load_tof_calib(self)
+        inputs:
+            m: scalar or array like, mass in atomic mass units
+            nrevs: int number of revs
+        """
+        #
+        if not self.tof_calib_loaded:
+            print("(MRToFUtils:calc_ToF)ToF Calibration file not loaded!")
+            return False
+        #
+        F1, MCP = self.__calc_tof_outside_device(m)
+        TG1 = ((self.a1 * np.sqrt(m) + self.b1) - F1 - MCP ) / self.revN2 * int(nrevs) 
+        tof = TG1 + F1 + MCP 
+        return tof
+
+    def recalibrate_tof(self, m1, tof1, nrevs):
+        """
+        Receives ToF of a known mass at nrevs and recalculates the a1 parameter
+        """
+        # F1, MCP = self.__calc_tof_outside_device(m)
+        # TG1 = tof - F1 - MCP
+        # self.a1 = ((TG1 * int(self.revN2) / int(nrevs)) + F1 + MCP - self.b1) / np.sqrt(m) / 1e3 # calculate a1 from absolute ToF and convert to micro-seconds 
+        m0 = self.m0
+        tof0 = self.calc_ToF(m0, nrevs)
+        self.revN2 = nrevs
+        self.a1, self.b1 = self.__calc_tof_params(m0, m1, tof0, tof1)
+
 
 class MRToFIsotope(MRToFUtils):
     '''
