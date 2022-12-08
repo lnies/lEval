@@ -11,7 +11,7 @@ import ROOT
 from ROOT import RooFit
 from ROOT import RooRealVar, RooArgSet, RooArgList, RooDataHist
 from ROOT import RooGenericPdf, RooUniform, RooPolynomial, RooGaussian, RooGaussModel, RooDecay, RooFormulaVar
-from ROOT import RooAddPdf, RooMCStudy
+from ROOT import RooAddPdf, RooExtendPdf, RooMCStudy
 from ROOT import Math as RootMath 
 import pandas as pd
 import numpy as np
@@ -25,6 +25,9 @@ import re
 import math 
 import time
 import mmap
+
+ROOT.gSystem.Load('hyperEMG12_cxx.so')
+ROOT.gSystem.Load('hyperEMG12ex_cxx.so')
 
 from utilities import FitToDict, Peaks, softCool
 
@@ -52,6 +55,7 @@ class FitMethods():
 		"""
 		# QtCore.QObject.__init__(self)
 		self.my_name = name
+		self.fit_func_name = ''
 		self.this_pdf = RooGaussian()
 		self.roi_mean = 0.0
 		self.roi_rms = 0.0
@@ -61,16 +65,30 @@ class FitMethods():
 		self.RooRealVar_dict = {}
 		self.RooGenericPdf_dict = {}
 		self.Var_dict = {}  
+		self.this_pdf = 0
 		#
 		self.lst_file = lst_file
+		self.bins = 100
 		self.fitrange = 100
+		self.xmin = 0
+		self.xmax = 1
 		self.results = {}
 		self.fits_r = []
 		self.limits = {}
 		self.meta_data = {}
+		self.params = {}
+		#
+		self.dimensions = [0,1] # dimensionality of fit function, e.g. number of shape parameters
+		self.n_comps = 1 # multiplicity of components for the fit function
+		self.states = [] # array of states passed as limits
+		self.numerical_peak = 0
+		self.numerical_FWHM_left = 0
+		self.numerical_FWHM_right = 0
 		self.cps = None
-		self.cps_std = None
+		self.cps_err = None
+		#
 		self.meta_data_keys = ["range", "swpreset", "cycles", "cmline0", "caloff", "calfact", "time_patch", ]
+		#
 		#
 		# If no peaks are passed, find peaks within the initialization of the function
 		if peaks == 'findit':
@@ -121,7 +139,6 @@ class FitMethods():
 		x = self.RooRealVar_dict['x']
 		# Depending on whether there is a region to be blinded (cut data), define some subregions
 		if isinstance(xmin, list):
-			print(xmin, xmax)
 			ranges=""
 			for i in np.arange(len(xmin)):
 				lrange=f"win_{self.roodefs[0].GetName()}_range{i}"
@@ -129,17 +146,38 @@ class FitMethods():
 				ranges+=lrange
 				if i != len(xmin):
 					ranges+=","
+			# Create full range
+			x.setRange(f"win_{self.roodefs[0].GetName()}_rangeFULL", xmin[0], xmax[-1])
+			### Fix parameters of NLL to range
+			### see tutorial https://root.cern.ch/doc/v624/rf204b__extendedLikelihood__rangedFit_8C.html
+			# self.roodefs[0].fixCoefRange(f"win_{self.roodefs[0].GetName()}_rangeFULL")
+			# Extend PDF to account for sub ranges
+			n_in_int = 0
+			for i in np.arange(len(xmin)):
+				n_in_int += len(self.lst_file.tof[(self.lst_file.tof > xmin[i]) & (self.lst_file.tof < xmax[i])])
+
+			# N = RooRealVar("N", "Extended term", n_in_int, n_in_int, n_in_int)
+			N = RooRealVar("N", "Extended term", n_in_int, n_in_int/2, n_in_int*2)
+			# fitmodel = self.roodefs[0]
+			fitmodel = RooExtendPdf("extmodel", "Extended model", self.roodefs[0], N, ranges)
+			# fitmodel = RooExtendPdf("extmodel", "Extended model", self.roodefs[0], N, f"win_{self.roodefs[0].GetName()}_rangeFULL")
+
+
 		else:
 			ranges = f"win_{self.roodefs[0].GetName()}"
 			x.setRange(ranges, xmin, xmax)
+			fitmodel = self.roodefs[0]
+
+		# Define data type
 		if datatype == 'is_th1d': 
 			roohist = RooDataHist('roohist_tof', 'title', RooArgList(x), RooFit.Import(data))
 		elif datatype == 'is_roodatahist':
 			roohist = data
 		else:
 			roohist = data
-		print("Test-MINIMIZE")
-		result_mlkh = self.roodefs[0].fitTo(roohist,
+
+		# Do fit
+		result_mlkh = fitmodel.fitTo(roohist,
 											RooFit.Range(ranges),
 											# RooFit.NormRange(f"win_{self.roodefs[0].GetName()}"),
 											RooFit.Minos(minos),
@@ -165,8 +203,6 @@ class FitMethods():
 		if minn == maxx:
 			maxx += 1
 		#
-		print(self.bins, minn, maxx)
-		# print(f"BINNING: {round((maxx-minn)/0.8/self.bins)}")
 		return round((maxx-minn)/0.8/self.bins)
 
 	def lst2roothist(self, list_file, bins=1):
@@ -179,14 +215,14 @@ class FitMethods():
 		self.bins = bins
 		minn = self.lst_file.tof.min()
 		maxx = self.lst_file.tof.max()
-		hist = ROOT.TH1D( 'hist', 'hist converted', self.get_binning(bins), minn, maxx)
+		hist = ROOT.TH1D( 'hist', 'hist converted', self.get_binning(self.bins), minn, maxx)
 		[hist.Fill(x) for x in list_file.tof]
 		# Safe the histogrammed data in arrays
 		xdata = self.lst_file.tof
 		self.y_data, self.x_data = np.histogram(xdata, bins=self.get_binning(self.bins))
 		# Calculate counts per shot
 		self.cps = np.average(self.lst_file.sweep.value_counts()) 
-		self.cps_std = np.std(self.lst_file.sweep.value_counts())
+		self.cps_err = np.std(self.lst_file.sweep.value_counts())
 		#
 		return hist
 
@@ -317,7 +353,7 @@ class FitMethods():
 		# If counts per second were calculated
 		if self.cps != None:
 			f.write(f"cps={self.cps}\n")
-			f.write(f"cps_std={self.cps_std}\n")
+			f.write(f"cps_err={self.cps_err}\n")
 		#
 		f.write(f"[RESULTS-TABLE]\n")
 		f.write(f"var value error error_lo error_high var_init var_lim_lo var_lim_hi\n")
@@ -398,6 +434,340 @@ class FitMethods():
 		#
 		return xm, y_val
 
+	# Plot functions
+
+	def plot(self, bins = 1, log=False, focus=-1, xrange_mod = [800,3000], from_file = False, file_out=False, contribs = False,
+		silent=True, centroids=False, components=False, carpet=False, legend=True, style='errorbar',
+		fs_legend = 14, fs_xlabel = 20, fs_ylabel = 20, fs_ticks = 15, figsize = (6,4), add_vlines = [], 
+		prelim=False, prelimfs = 10,
+		external = False, fig = False, ax = False,
+		):
+		"""  
+		Wrapper for plotting the fit and data
+			- bins: number of bins to rebin. Defaults to 1, e.g. no rebinning
+			- log: plot y-scale in log. Defaults to false
+			- focus: focus xrange on peak number
+			- xrange_mod: modify xrange focus. array like with two components
+			- from_file: file to read fit from if already fitted earlier .pdf. Defaults to False, fit needs to be executed beforehand 
+			- file_out: name to save plot as .pdf. Defaults to False, e.g. no saving
+			- contribs: if true, assumes emg components to be stored as contribs (newer fitting method)
+			- silent: True shows plot, false does not show plot (for silent printing)
+			- centroids: True shows centroids of Gaussian components, as well as location of FWHM of main peak. Defaults to False.
+			- components: Plots components to EGH as grey dashed lines
+			- carpet: If true, plots carpet 
+			- legend: Plot legend if
+			- add_vlnies: Array-like, adds vlines at ToF values entered throug array
+			- prelim: adds preliminary watermark
+			- prelimfs: preliminary watermark font size
+			- external: if rountine is to be used to plot onto an external canvas. requires fig and axis to be passed. axis will be then returned
+		"""
+		# if not external plotting
+		if not external:
+			plt.rcParams["figure.figsize"] = figsize
+			fig, ax = plt.subplots(nrows=1, ncols=1, figsize=figsize)
+		#
+		if len(self.lst_file) == 0:
+			print("Fit not excecuted yet or failed.")
+			return 0 
+		#       
+		self.bins = bins
+		xdata = self.lst_file.tof
+		n, xe = np.histogram(xdata, bins=self.get_binning(self.bins))
+		# n = n/len(xdata)
+		cx = 0.5 * (xe[1:] + xe[:-1]) 
+		dx = np.diff(xe)
+
+		# Get fit and prepare fit parameters for plotting,
+		#	- Either from the call_pdf during the same program excecution
+		# 	- or from the fit file that saves the fit
+		if not from_file:
+			# X-Axis for fit
+			# Get fit ranges
+			if isinstance(self.xmin, list):
+				plot_xmin = self.xmin[0]
+				plot_xmax = self.xmax[-1]
+			else:
+				plot_xmin = self.xmin
+				plot_xmax = self.xmax
+			xm = np.linspace(plot_xmin, plot_xmax, num=5000)
+			# Get fit results for x-axis
+			y_val = []
+			for i in xm:
+				self.RooRealVar_dict['x'].setVal(i)
+				y_val.append(self.this_pdf.getVal(ROOT.RooArgSet(self.RooRealVar_dict['x'])))	
+		else:
+			# Read fit file
+			xm, y_val = self.load_fit(from_file)
+
+		# From infer the ground state / isomeric state character of peaks passed
+		#self.__infer_states(self.n_comps, fromm='fit-file')
+
+		# Get fit ranges
+		if isinstance(self.xmin, list):
+			plot_xmin = self.xmin[0]
+			plot_xmax = self.xmax[-1]
+		else:
+			plot_xmin = self.xmin
+			plot_xmax = self.xmax
+
+		# Plot data
+		if style == 'errorbar':
+			# use sqrt(n) as error, if n==1 use smaller error to avoid having inifite long error bars in log-scale
+			ax.errorbar(cx - self.numerical_peak, n, [val ** 0.5 if val != 1 else 0.75 for val in n] ,
+					ecolor='black', elinewidth=1,  
+					fmt="ok", zorder=1, label=f"Data (bins={bins})"
+			)
+		elif style == 'hist':
+			ax.hist((xdata - self.numerical_peak), bins=self.get_binning(bins=bins), color='grey', edgecolor='black', linewidth=0.1, label=f"Data (bins={bins})")
+
+		# Normalize values
+		integral_cut = sum(y_val) * np.diff(xm)[0]
+		left_n_cut = len(xe[xe<plot_xmin])
+		right_n_cut = len(xe[xe<plot_xmax])
+		n_cut = n[left_n_cut:right_n_cut]        
+		y_val = y_val / integral_cut * sum(n_cut) * dx[0]
+
+		# Plot fit	
+		ax.plot(xm - self.numerical_peak, 
+				 y_val, label=f"{self.fit_func_name}({self.dimensions[0]},{self.dimensions[1]})", c='r', zorder=3, linewidth=3)
+		
+		ax.fill_between(xm - self.numerical_peak, y_val, alpha=0.4, color='grey')
+
+		# Plot 'carpet'
+		if carpet:
+			if log:
+				ax.plot(xdata - self.numerical_peak, 
+						 np.zeros_like(xdata)+0.9, "|", alpha=0.1, zorder = 3)
+			ax.plot(xdata - self.numerical_peak, 
+					 np.zeros_like(xdata)-5, "|", alpha=0.1, zorder = 3)
+
+		# Plot numerical peak position and FWHM
+		if centroids:
+			ax.axvline(self.numerical_peak - self.numerical_peak, c='r', linewidth=1, zorder=3)
+			ax.axvline(self.numerical_FWHM_left - self.numerical_peak, c='blue', linewidth=1, zorder=3)
+			ax.axvline(self.numerical_FWHM_right - self.numerical_peak, c='blue', linewidth=1, zorder=3)
+			# Plot center of gaussian component
+			for comp in range(0,self.n_comps,1):
+				if f'mu{comp}' in self.Var_dict.keys():
+					ax.axvline(self.Var_dict[f'mu{comp}'] - self.numerical_peak, c='r', linewidth=1, zorder=3)
+				if f'mu{comp}-E0' in self.Var_dict.keys():
+					ax.axvline(self.Var_dict[f'mu{comp}']+self.Var_dict[f'mu{comp}-E0'] - self.numerical_peak, c='r', linewidth=1, zorder=3)
+				if f'mu{comp}-E1' in self.Var_dict.keys():
+					ax.axvline(self.Var_dict[f'mu{comp}']+self.Var_dict[f'mu{comp}-E1'] - self.numerical_peak, c='r', linewidth=1, zorder=3)
+				else:
+					continue
+		# Plot components
+		if components and not contribs:
+			i_ratio = 0 
+			n_ratios = self.n_comps * (self.dimensions[0] + self.dimensions[1]) - 1
+
+			# print([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)])
+			# print(sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)]))
+			# print(1-sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)]))
+
+			# Loop through components as the ratios are assigned: inner loop must be the different species while outer loop is the egh component
+			# Negative egh components
+			for dim in range(0,self.dimensions[0],1):
+				for comp in range(0,self.n_comps,1):
+					y_val = self.neg_func(x=xm,mu=self.Var_dict[f'mu{comp}'], 
+												sigma=self.Var_dict[f'sigma'], 
+												ntau=self.Var_dict[f'ntau{dim}'])
+					# normalize accounting for fit ratios
+					integral_cut = sum(y_val) * np.diff(xm)[0]
+					y_val = y_val / integral_cut * sum(n_cut) * dx[0]
+					if (self.n_comps == 1 and (self.dimensions[0]+self.dimensions[1]) == 1):
+						ratio = 1
+					else:
+						if i_ratio != n_ratios:
+							y_val *= self.Var_dict[f'ratio{i_ratio}']
+						else:
+							y_val *= 1-sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)])
+					i_ratio += 1
+					# Plot
+					plt.plot(xm - self.numerical_peak, 
+							 y_val, c='grey', ls="--", zorder=2, linewidth=2.25,
+							 #label=f"Neg. component {comp}:{dim})"
+							 )
+					# Shade area under component
+					plt.fill_between(xm - self.numerical_peak, y_val, alpha=0.2, color='grey')
+
+			# Positive egh components
+			for dim in range(0,self.dimensions[1],1):
+				for comp in range(0,self.n_comps,1):
+					y_val = self.pos_func(x=xm,mu=self.Var_dict[f'mu{comp}'], 
+												sigma=self.Var_dict[f'sigma'], 
+												ptau=self.Var_dict[f'ptau{dim}'])
+					# normalize accounting for fit ratios
+					integral_cut = sum(y_val) * np.diff(xm)[0]
+					y_val = y_val / integral_cut * sum(n_cut) * dx[0]
+					if (self.n_comps == 1 and (self.dimensions[0]+self.dimensions[1]) == 1):
+						ratio = 1
+					else:
+						if i_ratio != n_ratios:
+							y_val *= self.Var_dict[f'ratio{i_ratio}']
+						else:
+							y_val *= 1-sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)])
+					i_ratio += 1
+					# Plot
+					plt.plot(xm - self.numerical_peak, 
+							 y_val, c='grey', ls="--", zorder=2, linewidth=2.25,
+							 #label=f"Neg. component {comp}:{dim})"
+							 )
+					# Shade area under component
+					print("filled_between")
+					plt.fill_between(xm - self.numerical_peak, y_val, step='pre', alpha=0.2, color='grey')
+
+		if components and contribs:
+
+			n_ratios = self.n_comps - 1
+			n_contribs = np.sum(self.dimensions) - 1 
+
+			# print([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)])
+			# print(sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)]))
+			# print(1-sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)]))
+
+			# Loop through components as the ratios are assigned: inner loop must be the different species while outer loop is the egh component
+			# Negative egh components
+			i_contrib = 0 
+			for dim in range(0,self.dimensions[0],1):
+				comp = 0
+				for state in self.states:
+					if state["state"] == 'gs':
+						y_val = self.neg_func(x=xm,mu=self.Var_dict[state["peak"]], 
+												sigma=self.Var_dict[f'sigma'], 
+												ntau=self.Var_dict[f'ntau{dim}'])
+					else:
+						y_val = self.neg_func(x=xm, mu=self.Var_dict[state["peak"]]+self.Var_dict[state["peak"]+"-"+state["state"]], 
+												sigma=self.Var_dict[f'sigma'], 
+												ntau=self.Var_dict[f'ntau{dim}'])
+					# normalize accounting for fit ratios
+					integral_cut = sum(y_val) * np.diff(xm)[0]
+					y_val = y_val / integral_cut * sum(n_cut) * dx[0]
+					
+					if (comp < self.n_comps-1):
+						ratio = self.Var_dict[f'ratio{comp}']
+					else:
+						ratio = 1-sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,self.n_comps-1,1)])
+					comp += 1
+
+					if i_contrib < n_contribs:
+						contrib = self.Var_dict[f'contrib{i_contrib}'] 
+					else:
+						contrib = (1-sum([self.Var_dict[f'contrib{r}'] for r in np.arange(0,n_contribs,1)]))
+					#
+					y_val *= contrib * ratio
+
+					# print(f"Ratio: {ratio}, Contrib: {contrib}, Dimension {dim}, -, peak" + state["peak"] + state["state"])
+
+					# Plot
+					ax.plot(xm - self.numerical_peak, 
+							 y_val, c='grey', ls="--", zorder=2, linewidth=2.25,
+							 #label=f"Neg. component {comp}:{dim})"
+							 )
+					# Shade area under component
+					ax.fill_between(xm - self.numerical_peak, y_val, alpha=0.4, color='grey')
+
+				#
+				i_contrib += 1 
+				#
+			# Positive egh components
+			for dim in range(0,self.dimensions[1],1):
+				comp = 0
+				for state in self.states:
+					if state["state"] == 'gs':
+						y_val = self.pos_func(x=xm,mu=self.Var_dict[state["peak"]], 
+												sigma=self.Var_dict[f'sigma'], 
+												ptau=self.Var_dict[f'ptau{dim}'])
+					else:
+						y_val = self.pos_func(x=xm, mu=self.Var_dict[state["peak"]]+self.Var_dict[state["peak"]+"-"+state["state"]], 
+												sigma=self.Var_dict[f'sigma'], 
+												ptau=self.Var_dict[f'ptau{dim}'])
+					# normalize accounting for fit ratios
+					integral_cut = sum(y_val) * np.diff(xm)[0]
+					y_val = y_val / integral_cut * sum(n_cut) * dx[0]
+					
+					if (comp < self.n_comps-1):
+						ratio = self.Var_dict[f'ratio{comp}']
+					else:
+						ratio = 1-sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,self.n_comps-1,1)])
+					comp += 1
+
+					if i_contrib < n_contribs:
+						contrib = self.Var_dict[f'contrib{i_contrib}'] 
+					else:
+						contrib = (1-sum([self.Var_dict[f'contrib{r}'] for r in np.arange(0,n_contribs,1)]))
+					#
+					y_val *= contrib * ratio
+
+					# print(f"Ratio: {ratio}, Contrib: {contrib}, Dimension {dim}, +, peak" + state["peak"] + state["state"])
+					
+					# Plot
+					ax.plot(xm - self.numerical_peak, 
+							 y_val, c='grey', ls="--", zorder=2, linewidth=2.25,
+							 #label=f"Neg. component {comp}:{dim})"
+							 )
+					# Shade area under component
+					ax.fill_between(xm - self.numerical_peak, y_val, alpha=0.4, color='grey')
+
+				#
+				i_contrib += 1 
+				#
+
+        # add vlines
+		for vline in add_vlines:
+			ax.axvline(vline-self.numerical_peak, c='blue', linewidth=1, zorder=3, ls = '--')
+		
+		# Get y axis limits
+		ylims = ax.get_ylim()
+		if log:
+			ax.set_yscale("log")
+			ax.set_ylim(0.2,2*ylims[1])
+
+		# Zoom in on found peaks
+		if self.peaks.n_peaks != 0:
+			ax.set_xlim(self.peaks.earliest_left_base - xrange_mod[0] - self.numerical_peak, 
+					 self.peaks.latest_right_base + xrange_mod[1] - self.numerical_peak)
+			if focus != False:
+				ax.set_xlim(self.peaks.pos[focus] - 1200 - self.numerical_peak, 
+						 self.peaks.pos[focus] + 1200 - self.numerical_peak)
+
+		# Add axis labels
+		ax.set_xlabel(f'Time-of-Flight [ns] - {self.numerical_peak:.1f}ns', fontsize=fs_xlabel)
+		ax.set_ylabel(f'Counts per bin', fontsize=fs_ylabel)
+
+		# Set ticks size 
+		ax.tick_params(axis='both', which='major', labelsize=fs_ticks)
+
+		# Format Legend
+		if legend:
+			plt.legend(fontsize=fs_legend)
+
+		# Print preliminary on top
+		if prelim:
+			ax.text(0.5, 0.5, 'PRELIMINARY', transform=ax.transAxes,
+				fontsize=prelimfs, color='red', alpha=0.3,
+				ha='center', va='center', rotation=30)
+		if not external:
+			plt.tight_layout()
+
+		# Save plot
+		if file_out != False:
+			print(f"Plot fit save as {file_out}")
+			plt.savefig(file_out, dpi=600, transparent=True)
+
+
+		# Show plot on canvas
+		if silent == False:
+			plt.show()
+
+		# Clear canvas to avoid printing on top of other plot in batch mode
+		if silent:
+			plt.clf()
+
+		# return axis if external plotting is uesd
+		if external:
+			return fig, ax
+
 class Gauss(FitMethods):
 	"""
 	Class handling the Gaussian model.
@@ -421,7 +791,7 @@ class Gauss(FitMethods):
 		:return list: containing all relevant information about the ROI histogram, PDF, parameters,
 					  PDF components and fit results
 		"""
-		self.hist = self.lst2roothist(self.lst_file, bins=2000)
+		# self.hist = self.lst2roothist(self.lst_file, bins=2000)
 		self.hist.GetXaxis().SetRangeUser(xmin, xmax)
 		self.compose_title_unit(self.hist.GetXaxis().GetTitle())
 		
@@ -445,38 +815,6 @@ class Gauss(FitMethods):
 				self.x, self.mean, self.sigma, self.pstate,
 				self.my_name, self.spl_draw, self.rooCompon, self.fit_results]
 	
-	def plot(self, log=False):
-		"""  """
-		if len(self.lst_file) == 0:
-			print("Fit not excecuted yet or failed.")
-			return 0 
-		#            
-		xdata = self.lst_file.tof
-		n, xe = np.histogram(xdata, bins=bins)
-		cx = 0.5 * (xe[1:] + xe[:-1])
-		dx = np.diff(xe)
-		plt.errorbar(cx, n, n ** 0.5, fmt="ok", zorder=1)
-		xm = np.linspace(xe[0], xe[-1], num=1000)
-		# Plot 'carpet'
-		if log:
-			plt.plot(xdata, np.zeros_like(xdata)+0.9, "|", alpha=0.1, label = "ToF Data", zorder = 3)
-		plt.plot(xdata, np.zeros_like(xdata)-5, "|", alpha=0.1, label = "ToF Data", zorder = 3)
-		#
-		# Plot fits, loop through all fits
-		if log:
-			xm = np.linspace(self.mean.getValV()-100, self.mean.getValV()+100, num=1000)
-		#
-		y_val = [RootMath.gaussian_pdf(x=y, x0=self.mean.getValV(), sigma=self.sigma.getValV()) * len(xdata) * dx[0] for y in xm]
-		plt.plot(xm, y_val, ls=":", label=f"init", zorder=2)
-		plt.plot(xm, y_val, label=f"fit", c='r', zorder=3)
-		
-		plt.legend();
-		if log:
-			plt.yscale("log")
-		# Zoom in on found peaks
-		if self.peaks.n_peaks != 0:
-			plt.xlim(self.peaks.earliest_left_base-200, self.peaks.latest_right_base+200)
-
 class LanGauss(FitMethods):
 	"""
 	Class handling the Landau - Gaussian convolution model.
@@ -592,7 +930,7 @@ class LanGauss(FitMethods):
 		if silent == False:
 			plt.show()
 
-class doubleGauss(FitMethods):
+class multiGauss(FitMethods):
 	"""
 	Class handling the Gaussian model.
 	"""
@@ -600,13 +938,10 @@ class doubleGauss(FitMethods):
 		"""
 		Initializes the class and number of parameters.
 		"""        
-		self.fit_func_name = "doubleGauss"
-		# QtWidgets.QWidget.__init__(self)
 		FitMethods.__init__(self, lst_file, file_path=file_path, name='double_gauss', peaks=peaks, verbose=verbose)
 		# self.setupUi(self)
 		# self.update_par_list()
-		self.hist = self.lst2roothist(self.lst_file, bins=2000)
-		self.RooGenericPdf_dict = {}
+		self.fit_func_name = "doubleGauss"
 		
 		if file_path == False: 
 			self.base_file_name = 'path_to_file'
@@ -621,7 +956,9 @@ class doubleGauss(FitMethods):
 			'ratio':[0.5,0,1],
 		}
 
-	def call_pdf(self, xmin, xmax, bins=1, dimensions = [0,1], n_comps = 2, limits=False):
+	def call_pdf(self, xmin, xmax, bins=1, dimensions = [0,1], n_comps = 2, limits=False,
+				 minos = ROOT.kFALSE,
+		):
 		"""
 		Setup Variable, Parameters and PDF and performs fitting of the PDF to ROI data.
 		:param roi_hist: histogram to fit
@@ -639,7 +976,6 @@ class doubleGauss(FitMethods):
 		self.n_comps = n_comps
 		self.xmin = xmin
 		self.xmax = xmax
-		self.hist.GetXaxis().SetRangeUser(self.xmin, self.xmax)
 		self.compose_title_unit(self.hist.GetXaxis().GetTitle())
 		# 
 		if not limits:
@@ -653,30 +989,56 @@ class doubleGauss(FitMethods):
 		# self.set_value(1, self.hist.GetStdDev(1))
 		# self.set_limits(1, 0.01*self.hist.GetStdDev(1), 10*self.hist.GetStdDev(1))
 		#
-		self.RooRealVar_dict['x'] = RooRealVar("x", self.rootitle, self.xmin, self.xmax, self.roounit)
-		self.RooRealVar_dict['mu0'] = RooRealVar('mu0', 'mu0',
-						  self.limits["mu0"][0], self.limits["mu0"][1], self.limits["mu0"][2])
-		self.RooRealVar_dict['mu1'] = RooRealVar('mu1', 'mu1',
-						  self.limits["mu1"][0], self.limits["mu1"][1], self.limits["mu1"][2])
+
+		# Fill variable dictionary:
+		if isinstance(xmin, list):
+			self.RooRealVar_dict = {
+				'x': RooRealVar("x", self.rootitle, self.xmin[0], self.xmax[-1], self.roounit)
+			}
+		else:
+			self.RooRealVar_dict = {
+				'x': RooRealVar("x", self.rootitle, self.xmin, self.xmax, self.roounit)
+			}
+
 		self.RooRealVar_dict['sigma'] = RooRealVar('sigma', 'sigma',
 						   self.limits["sigma"][0], self.limits["sigma"][1], self.limits["sigma"][2])
-		self.RooRealVar_dict['ratio'] = RooRealVar(f'ratio', "ratio", 
-							self.limits["ratio"][0], self.limits["ratio"][1], self.limits["ratio"][2])
 		#
-		self.RooGenericPdf_dict['sig0'] = RooGaussian('gauss_0', 'Gaussian Model 0', 	self.RooRealVar_dict['x'], 
-																						self.RooRealVar_dict['mu0'], 
-																						self.RooRealVar_dict['sigma'])
-		self.RooGenericPdf_dict['sig1'] = RooGaussian('gauss_1', 'Gaussian Model 1', 	self.RooRealVar_dict['x'], 
-																						self.RooRealVar_dict['mu1'], 
-																						self.RooRealVar_dict['sigma'])
+		for n in np.arange(0,self.n_comps,1):
+			self.RooRealVar_dict[f'mu{n}'] = RooRealVar(f'mu{n}', f'mu{n}',
+							  self.limits[f'mu{n}'][0], self.limits[f'mu{n}'][1], self.limits[f'mu{n}'][2])
+			self.RooGenericPdf_dict[f'sig{n}'] = RooGaussian(f'gauss{n}', f'Gaussian Model {n}', 	
+																							self.RooRealVar_dict['x'], 
+																							self.RooRealVar_dict[f'mu{n}'], 
+																							self.RooRealVar_dict['sigma'])
+		# Build component ratios
+		for j in np.arange(0,self.n_comps-1,1): 
+			var_name = f"ratio{j}"
+			self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
 
-		self.this_pdf = RooAddPdf(f'double_Gaussian', f'Two Gaussians added',
-								  RooArgList(self.RooGenericPdf_dict['sig0'], self.RooGenericPdf_dict['sig1']), self.RooRealVar_dict['ratio'])
+
+		# put all pdfs together
+		all_pdfs = RooArgList()
+		for pdf in self.RooGenericPdf_dict:
+			all_pdfs.add(self.RooGenericPdf_dict[pdf])
+		# put all ratios together
+		all_ratios = RooArgList()
+		for var in self.RooRealVar_dict:
+			m = re.search('ratio*', var)
+			if m:
+				all_ratios.add(self.RooRealVar_dict[var])
+
+		# Make master pdf
+		self.this_pdf = RooAddPdf(f'multiGaussian', f'Multiple Gaussians Superposed', all_pdfs, all_ratios, recursiveFraction = ROOT.kFALSE)
+
 		# norm = RooRealVar('events{}', "Nb of Events", self.roi_counts)
 		# self.ext_this_pdf = RooExtendPdf('ext_gauss{}'.format(index), 'Ext Gaussian', self.this_pdf, norm)
 		self.roodefs = [self.this_pdf, self.RooRealVar_dict, self.RooGenericPdf_dict]
 		# self.fix_var(self.roodefs[2:], index)
-		self.this_roohist, self.fit_results = self.minimize(self.hist, self.xmin, self.xmax)
+
+		if minos: 
+			self.this_roohist, self.fit_results = self.minimize(self.hist, self.xmin, self.xmax, datatype='is_th1d')
+		else:
+			self.this_roohist, self.fit_results = self.minimize(self.hist, self.xmin, self.xmax, datatype='is_th1d', minos = ROOT.kFALSE)
 
 		# Store fit results in dict
 		for key in self.RooRealVar_dict:
@@ -689,166 +1051,6 @@ class doubleGauss(FitMethods):
 
 		return [self.this_roohist, self.roodefs, self.this_pdf, self.my_name, self.spl_draw, self.rooCompon, self.fit_results]	
 	
-	def plot(self, bins = 1, log=False, focus=-1, from_file = False, file_out=False, silent=True, 
-			 centroids=False, carpet=False, legend=True):
-		"""  
-		Wrapper for plotting the fit and data
-			- bins: number of bins to rebin. Defaults to 1, e.g. no rebinning
-			- log: plot y-scale in log. Defaults to false
-			- from_file: file to read fit from if already fitted earlier .pdf. Defaults to False, fit needs to be executed beforehand 
-			- file_out: name to save plot as .pdf. Defaults to False, e.g. no saving
-			- silent: True shows plot, false does not show plot (for silent printing)
-			- centroids: True shows centroids of Gaussian components, as well as location of FWHM of main peak. Defaults to False.
-			- components: Plots components to EGH as grey dashed lines
-			- carpet: If true, plots carpet 
-			- legend: Plot legend if
-		"""
-		if len(self.lst_file) == 0:
-			print("Fit not excecuted yet or failed.")
-			return 0 
-		#       
-		self.bins = bins
-		xdata = self.lst_file.tof
-		n, xe = np.histogram(xdata, bins=self.get_binning(self.bins))
-		# n = n/len(xdata)
-		cx = 0.5 * (xe[1:] + xe[:-1]) 
-		dx = np.diff(xe)
-		# Plot data
-		# plt.scatter(cx, n, zorder=1)
-		
-		# Get fit and prepare fit parameters for plotting,
-		#	- Either from the call_pdf during the same program excecution
-		# 	- or from the fit file that saves the (not normalized) fit
-		if not from_file:
-			# X-Axis for fit
-			xm = np.linspace(self.xmin, self.xmax, num=5000)
-			# Get fit results for x-axis
-			y_val = []
-			for i in xm:
-				self.RooRealVar_dict['x'].setVal(i)
-				y_val.append(self.this_pdf.getVal(ROOT.RooArgSet(self.RooRealVar_dict['x'])))	
-		else:
-			# Read fit file
-			xm, y_val = self.load_fit(from_file)
-
-		# Plot data
-		plt.errorbar(cx - self.numerical_peak,
-					 n, n ** 0.5, fmt="ok", zorder=1, label=f"Data (bins={bins})")
-
-		# Normalize values
-		integral_cut = sum(y_val) * np.diff(xm)[0]
-		left_n_cut = len(xe[xe<self.xmin])
-		right_n_cut = len(xe[xe<self.xmax])
-		n_cut = n[left_n_cut:right_n_cut]        
-		y_val = y_val / integral_cut * sum(n_cut) * dx[0]
-
-		# Plot fit	
-		plt.plot(xm - self.numerical_peak, 
-				 y_val, label=f"{self.fit_func_name}({self.dimensions[0]},{self.dimensions[1]})", c='r', zorder=3, linewidth=3)
-		
-		# Plot 'carpet'
-		if carpet:
-			if log:
-				plt.plot(xdata - self.numerical_peak, 
-						 np.zeros_like(xdata)+0.9, "|", alpha=0.1, zorder = 3)
-			plt.plot(xdata - self.numerical_peak, 
-					 np.zeros_like(xdata)-5, "|", alpha=0.1, zorder = 3)
-
-		# Plot numerical peak position and FWHM
-		if centroids:
-			plt.axvline(self.numerical_peak - self.numerical_peak, c='r', linewidth=1, zorder=3)
-			plt.axvline(self.numerical_FWHM_left - self.numerical_peak, c='blue', linewidth=1, zorder=3)
-			plt.axvline(self.numerical_FWHM_right - self.numerical_peak, c='blue', linewidth=1, zorder=3)
-			# Plot center of gaussian component
-			for comp in range(0,self.n_comps,1):
-				plt.axvline(self.Var_dict[f'mu{comp}'] - self.numerical_peak, c='r', linewidth=1, zorder=3)
-
-		# # Plot components
-		# if components:
-		# 	i_ratio = 0 
-		# 	n_ratios = self.n_comps * (self.dimensions[0] + self.dimensions[1]) - 1
-
-		# 	print([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)])
-		# 	print(sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)]))
-		# 	print(1-sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)]))
-
-		# 	# Loop through components as the ratios are assigned: inner loop must be the different species while outer loop is the egh component
-		# 	# Negative egh components
-		# 	for dim in range(0,self.dimensions[0],1):
-		# 		for comp in range(0,self.n_comps,1):
-		# 			y_val = self.neg_func(x=xm,mu=self.Var_dict[f'mu{comp}'], 
-		# 										sigma=self.Var_dict[f'sigma'], 
-		# 										ntau=self.Var_dict[f'ntau{dim}'])
-		# 			# normalize accounting for fit ratios
-		# 			integral_cut = sum(y_val) * np.diff(xm)[0]
-		# 			y_val = y_val / integral_cut * sum(n_cut) * dx[0]
-		# 			if (self.n_comps == 1 and (self.dimensions[0]+self.dimensions[1]) == 1):
-		# 				ratio = 1
-		# 			else:
-		# 				if i_ratio != n_ratios:
-		# 					y_val *= self.Var_dict[f'ratio{i_ratio}']
-		# 				else:
-		# 					y_val *= 1-sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)])
-		# 			i_ratio += 1
-		# 			# Plot
-		# 			plt.plot(xm - self.numerical_peak, 
-		# 					 y_val, label=f"Neg. component {comp}:{dim})", c='grey', ls="--", zorder=2, linewidth=1.75)
-		# 	# Positive egh components
-		# 	for dim in range(0,self.dimensions[1],1):
-		# 		for comp in range(0,self.n_comps,1):
-		# 			y_val = self.pos_func(x=xm,mu=self.Var_dict[f'mu{comp}'], 
-		# 										sigma=self.Var_dict[f'sigma'], 
-		# 										ptau=self.Var_dict[f'ptau{dim}'])
-		# 			# normalize accounting for fit ratios
-		# 			integral_cut = sum(y_val) * np.diff(xm)[0]
-		# 			y_val = y_val / integral_cut * sum(n_cut) * dx[0]
-		# 			if (self.n_comps == 1 and (self.dimensions[0]+self.dimensions[1]) == 1):
-		# 				ratio = 1
-		# 			else:
-		# 				if i_ratio != n_ratios:
-		# 					y_val *= self.Var_dict[f'ratio{i_ratio}']
-		# 				else:
-		# 					y_val *= 1-sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)])
-		# 			i_ratio += 1
-		# 			# Plot
-		# 			plt.plot(xm - self.numerical_peak, 
-		# 					 y_val, label=f"Pos. component {comp}:{dim})", c='grey', ls="--", zorder=2, linewidth=1.75)
-
-		# Get y axis limits
-		ylims = plt.ylim()
-		if log:
-			plt.yscale("log")
-			plt.ylim(0.1,2*ylims[1])
-
-		# Zoom in on found peaks
-		if self.peaks.n_peaks != 0:
-			plt.xlim(self.peaks.earliest_left_base - 400 - self.numerical_peak, 
-					 self.peaks.latest_right_base + 400 - self.numerical_peak)
-			if focus != -1:
-				plt.xlim(self.peaks.pos[focus] - 600 - self.numerical_peak, 
-						 self.peaks.pos[focus] + 600 - self.numerical_peak)
-
-		# Add axis labels
-		plt.xlabel(f'Time-of-Flight [ns] - {self.numerical_peak:.1f}ns', fontsize=20)
-		plt.ylabel(f'Counts per bin', fontsize=20)
-
-		# Format Legend
-		if legend:
-			plt.legend(fontsize=20)
-
-		# Save plot
-		if file_out != False:
-			print(f"Plot fit save as {file_out}")
-			plt.savefig(file_out, dpi=300)
-
-		# Show plot on canvas
-		if silent == False:
-			plt.show()
-
-		# Clear canvas to avoid printing on top of other plot in batch mode
-		if silent:
-			plt.clf()
-
 class hyperEmg(FitMethods):
 	"""
 	Class handling the exponentially modified Gaussian as defined in hyper-EMG paper from JLU-GSI group
@@ -873,14 +1075,6 @@ class hyperEmg(FitMethods):
 		# Wikipedia definition
 		# self.pos_funct = '1/(2*@3)*exp(1/(2*@3)*(2*@1+(1/@3)*@2^2-2*@0))*TMath::Erfc((@1+(1/@3)*@2^2-@0)/(TMath::Sqrt(2)*@2))'
 		# self.neg_funct = '1/(2*@3)*exp(1/(2*@3)*(2*@1+(1/@3)*@2^2-2*@0))*TMath::Erfc((@1+(1/@3)*@2^2-@0)/(TMath::Sqrt(2)*@2))'
-		#
-		#
-		self.xmin = -1
-		self.xmax = -1
-		self.states = [] # array of states passed as limits
-		self.params = {}
-		self.RooRealVar_dict = {}
-		self.RooGenericPdf_dict = {}
 
 	def pos_func(self, x, mu, sigma, ptau):
 		"""
@@ -1201,7 +1395,7 @@ class hyperEmg(FitMethods):
 				self.params[row['var']] = row['value']
 
 	def call_pdf(self, xmin, xmax, dimensions = [1,2], n_comps = 1, simultaneous = False, 
-				bins = 1, limits=False, minos = True):
+				bins = 1, limits=False, minos = ROOT.kFALSE):
 		"""
 		Setup Variable, Parameters and PDF and performs fitting of the PDF to ROI data.
 		:param roi_hist: histogram to fit
@@ -1292,7 +1486,7 @@ class hyperEmg(FitMethods):
 			pdf_name = f"comp{j}"
 			# Start by building the PDF function string
 			funct = self.build_function_string(dimensions=dimensions, params=params, state = self.states[j])
-			print(funct)
+			print(f'--> Function String: {funct}')
 			# Build RooArgList iteratively depending on which parameters are fixed
 			listofRooArgs = RooArgList()
 			listofRooArgs.add(self.RooRealVar_dict['x'])
@@ -1326,12 +1520,39 @@ class hyperEmg(FitMethods):
 			if simultaneous:
 				contrib_idx = 0
 
+			state = 'mu0'
 			if self.states[j]["state"] != 'gs':
 				E = self.states[j]["peak"]+"-"+self.states[j]["state"]
 				listofRooArgs.add(self.RooRealVar_dict[E])
 				print(f"--> Add RooArg: '{E}'")
 			#
+				state = E
+
 			self.RooGenericPdf_dict[pdf_name] = RooGenericPdf(pdf_name,pdf_name,funct,listofRooArgs)
+			
+			# if state == 'mu0':
+			# 	self.RooGenericPdf_dict[pdf_name] = ROOT.hyperEMG12(pdf_name, pdf_name, 
+			# 		self.RooRealVar_dict[f"x"],
+			# 		self.RooRealVar_dict[f"{state}"],
+			# 		self.RooRealVar_dict[f"ntau0"],
+			# 		self.RooRealVar_dict[f"ptau0"],
+			# 		self.RooRealVar_dict[f"ptau1"],
+			# 		self.RooRealVar_dict[f"sigma"],
+			# 		self.RooRealVar_dict[f"contrib0"],
+			# 		self.RooRealVar_dict[f"contrib1"],
+			# 	)
+			# else:
+			# 	self.RooGenericPdf_dict[pdf_name] = ROOT.hyperEMG12ex(pdf_name, pdf_name, 
+			# 		self.RooRealVar_dict[f"x"],
+			# 		self.RooRealVar_dict[f"mu0"],
+			# 		self.RooRealVar_dict[f"{state}"],
+			# 		self.RooRealVar_dict[f"ntau0"],
+			# 		self.RooRealVar_dict[f"ptau0"],
+			# 		self.RooRealVar_dict[f"ptau1"],
+			# 		self.RooRealVar_dict[f"sigma"],
+			# 		self.RooRealVar_dict[f"contrib0"],
+			# 		self.RooRealVar_dict[f"contrib1"],
+			# 	)
 			#
 			# Build component ratios
 			if j < (n_comps-1): 
@@ -1340,8 +1561,6 @@ class hyperEmg(FitMethods):
 				self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
 			#
 			j += 1
-
-		print(self.RooRealVar_dict)
 
 		# Add constant background
 		# self.RooRealVar_dict['bck'] = RooRealVar('bck', 'bck', self.limits['bck'][0], self.limits['bck'][1], self.limits['bck'][2])
@@ -1414,336 +1633,3 @@ class hyperEmg(FitMethods):
 			self.Var_dict[key] = self.RooRealVar_dict[f'{key}'].getValV()
 
 		return [self.this_roohist, self.roodefs, self.this_pdf, self.my_name, self.spl_draw, self.rooCompon, self.fit_results]	
-		
-	def plot(self, bins = 1, log=False, focus=-1, xrange_mod = [800,3000], from_file = False, file_out=False, contribs = False,
-		silent=True, centroids=False, components=False, carpet=False, legend=True, style='errorbar',
-		fs_legend = 14, fs_xlabel = 20, fs_ylabel = 20, fs_ticks = 15, figsize = (6,4), add_vlines = [], 
-		prelim=False, prelimfs = 10,
-		external = False, fig = False, ax = False,
-		):
-		"""  
-		Wrapper for plotting the fit and data
-			- bins: number of bins to rebin. Defaults to 1, e.g. no rebinning
-			- log: plot y-scale in log. Defaults to false
-			- focus: focus xrange on peak number
-			- xrange_mod: modify xrange focus. array like with two components
-			- from_file: file to read fit from if already fitted earlier .pdf. Defaults to False, fit needs to be executed beforehand 
-			- file_out: name to save plot as .pdf. Defaults to False, e.g. no saving
-			- contribs: if true, assumes emg components to be stored as contribs (newer fitting method)
-			- silent: True shows plot, false does not show plot (for silent printing)
-			- centroids: True shows centroids of Gaussian components, as well as location of FWHM of main peak. Defaults to False.
-			- components: Plots components to EGH as grey dashed lines
-			- carpet: If true, plots carpet 
-			- legend: Plot legend if
-			- add_vlnies: Array-like, adds vlines at ToF values entered throug array
-			- prelim: adds preliminary watermark
-			- prelimfs: preliminary watermark font size
-			- external: if rountine is to be used to plot onto an external canvas. requires fig and axis to be passed. axis will be then returned
-		"""
-		# if not external plotting
-		if not external:
-			plt.rcParams["figure.figsize"] = figsize
-			fig, ax = plt.subplots(nrows=1, ncols=1, figsize=figsize)
-		#
-		if len(self.lst_file) == 0:
-			print("Fit not excecuted yet or failed.")
-			return 0 
-		#       
-		self.bins = bins
-		xdata = self.lst_file.tof
-		n, xe = np.histogram(xdata, bins=self.get_binning(self.bins))
-		# n = n/len(xdata)
-		cx = 0.5 * (xe[1:] + xe[:-1]) 
-		dx = np.diff(xe)
-
-		# Get fit and prepare fit parameters for plotting,
-		#	- Either from the call_pdf during the same program excecution
-		# 	- or from the fit file that saves the fit
-		if not from_file:
-			# X-Axis for fit
-			# Get fit ranges
-			if isinstance(self.xmin, list):
-				plot_xmin = self.xmin[0]
-				plot_xmax = self.xmax[-1]
-			else:
-				plot_xmin = self.xmin
-				plot_xmax = self.xmax
-			xm = np.linspace(plot_xmin, plot_xmax, num=5000)
-			# Get fit results for x-axis
-			y_val = []
-			for i in xm:
-				self.RooRealVar_dict['x'].setVal(i)
-				y_val.append(self.this_pdf.getVal(ROOT.RooArgSet(self.RooRealVar_dict['x'])))	
-		else:
-			# Read fit file
-			xm, y_val = self.load_fit(from_file)
-
-		# From infer the ground state / isomeric state character of peaks passed
-		#self.__infer_states(self.n_comps, fromm='fit-file')
-
-		# Get fit ranges
-		if isinstance(self.xmin, list):
-			plot_xmin = self.xmin[0]
-			plot_xmax = self.xmax[-1]
-		else:
-			plot_xmin = self.xmin
-			plot_xmax = self.xmax
-
-		# Plot data
-		if style == 'errorbar':
-			# use sqrt(n) as error, if n==1 use smaller error to avoid having inifite long error bars in log-scale
-			ax.errorbar(cx - self.numerical_peak, n, [val ** 0.5 if val != 1 else 0.75 for val in n] ,
-					ecolor='black', elinewidth=1,  
-					fmt="ok", zorder=1, label=f"Data (bins={bins})"
-			)
-		elif style == 'hist':
-			ax.hist((xdata - self.numerical_peak), bins=self.get_binning(bins=bins), color='grey', edgecolor='black', linewidth=0.1, label=f"Data (bins={bins})")
-
-		# Normalize values
-		integral_cut = sum(y_val) * np.diff(xm)[0]
-		left_n_cut = len(xe[xe<plot_xmin])
-		right_n_cut = len(xe[xe<plot_xmax])
-		n_cut = n[left_n_cut:right_n_cut]        
-		y_val = y_val / integral_cut * sum(n_cut) * dx[0]
-
-		# Plot fit	
-		ax.plot(xm - self.numerical_peak, 
-				 y_val, label=f"{self.fit_func_name}({self.dimensions[0]},{self.dimensions[1]})", c='r', zorder=3, linewidth=3)
-		
-		ax.fill_between(xm - self.numerical_peak, y_val, alpha=0.4, color='grey')
-
-		# Plot 'carpet'
-		if carpet:
-			if log:
-				ax.plot(xdata - self.numerical_peak, 
-						 np.zeros_like(xdata)+0.9, "|", alpha=0.1, zorder = 3)
-			ax.plot(xdata - self.numerical_peak, 
-					 np.zeros_like(xdata)-5, "|", alpha=0.1, zorder = 3)
-
-		# Plot numerical peak position and FWHM
-		if centroids:
-			ax.axvline(self.numerical_peak - self.numerical_peak, c='r', linewidth=1, zorder=3)
-			ax.axvline(self.numerical_FWHM_left - self.numerical_peak, c='blue', linewidth=1, zorder=3)
-			ax.axvline(self.numerical_FWHM_right - self.numerical_peak, c='blue', linewidth=1, zorder=3)
-			# Plot center of gaussian component
-			for comp in range(0,self.n_comps,1):
-				if f'mu{comp}' in self.Var_dict.keys():
-					ax.axvline(self.Var_dict[f'mu{comp}'] - self.numerical_peak, c='r', linewidth=1, zorder=3)
-				if f'mu{comp}-E0' in self.Var_dict.keys():
-					ax.axvline(self.Var_dict[f'mu{comp}']+self.Var_dict[f'mu{comp}-E0'] - self.numerical_peak, c='r', linewidth=1, zorder=3)
-				if f'mu{comp}-E1' in self.Var_dict.keys():
-					ax.axvline(self.Var_dict[f'mu{comp}']+self.Var_dict[f'mu{comp}-E1'] - self.numerical_peak, c='r', linewidth=1, zorder=3)
-				else:
-					continue
-		# Plot components
-		if components and not contribs:
-			i_ratio = 0 
-			n_ratios = self.n_comps * (self.dimensions[0] + self.dimensions[1]) - 1
-
-			# print([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)])
-			# print(sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)]))
-			# print(1-sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)]))
-
-			# Loop through components as the ratios are assigned: inner loop must be the different species while outer loop is the egh component
-			# Negative egh components
-			for dim in range(0,self.dimensions[0],1):
-				for comp in range(0,self.n_comps,1):
-					y_val = self.neg_func(x=xm,mu=self.Var_dict[f'mu{comp}'], 
-												sigma=self.Var_dict[f'sigma'], 
-												ntau=self.Var_dict[f'ntau{dim}'])
-					# normalize accounting for fit ratios
-					integral_cut = sum(y_val) * np.diff(xm)[0]
-					y_val = y_val / integral_cut * sum(n_cut) * dx[0]
-					if (self.n_comps == 1 and (self.dimensions[0]+self.dimensions[1]) == 1):
-						ratio = 1
-					else:
-						if i_ratio != n_ratios:
-							y_val *= self.Var_dict[f'ratio{i_ratio}']
-						else:
-							y_val *= 1-sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)])
-					i_ratio += 1
-					# Plot
-					plt.plot(xm - self.numerical_peak, 
-							 y_val, c='grey', ls="--", zorder=2, linewidth=2.25,
-							 #label=f"Neg. component {comp}:{dim})"
-							 )
-					# Shade area under component
-					plt.fill_between(xm - self.numerical_peak, y_val, alpha=0.2, color='grey')
-
-			# Positive egh components
-			for dim in range(0,self.dimensions[1],1):
-				for comp in range(0,self.n_comps,1):
-					y_val = self.pos_func(x=xm,mu=self.Var_dict[f'mu{comp}'], 
-												sigma=self.Var_dict[f'sigma'], 
-												ptau=self.Var_dict[f'ptau{dim}'])
-					# normalize accounting for fit ratios
-					integral_cut = sum(y_val) * np.diff(xm)[0]
-					y_val = y_val / integral_cut * sum(n_cut) * dx[0]
-					if (self.n_comps == 1 and (self.dimensions[0]+self.dimensions[1]) == 1):
-						ratio = 1
-					else:
-						if i_ratio != n_ratios:
-							y_val *= self.Var_dict[f'ratio{i_ratio}']
-						else:
-							y_val *= 1-sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)])
-					i_ratio += 1
-					# Plot
-					plt.plot(xm - self.numerical_peak, 
-							 y_val, c='grey', ls="--", zorder=2, linewidth=2.25,
-							 #label=f"Neg. component {comp}:{dim})"
-							 )
-					# Shade area under component
-					print("filled_between")
-					plt.fill_between(xm - self.numerical_peak, y_val, step='pre', alpha=0.2, color='grey')
-
-		if components and contribs:
-
-			n_ratios = self.n_comps - 1
-			n_contribs = np.sum(self.dimensions) - 1 
-
-			# print([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)])
-			# print(sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)]))
-			# print(1-sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)]))
-
-			# Loop through components as the ratios are assigned: inner loop must be the different species while outer loop is the egh component
-			# Negative egh components
-			i_contrib = 0 
-			for dim in range(0,self.dimensions[0],1):
-				comp = 0
-				for state in self.states:
-					if state["state"] == 'gs':
-						y_val = self.neg_func(x=xm,mu=self.Var_dict[state["peak"]], 
-												sigma=self.Var_dict[f'sigma'], 
-												ntau=self.Var_dict[f'ntau{dim}'])
-					else:
-						y_val = self.neg_func(x=xm, mu=self.Var_dict[state["peak"]]+self.Var_dict[state["peak"]+"-"+state["state"]], 
-												sigma=self.Var_dict[f'sigma'], 
-												ntau=self.Var_dict[f'ntau{dim}'])
-					# normalize accounting for fit ratios
-					integral_cut = sum(y_val) * np.diff(xm)[0]
-					y_val = y_val / integral_cut * sum(n_cut) * dx[0]
-					
-					if (comp < self.n_comps-1):
-						ratio = self.Var_dict[f'ratio{comp}']
-					else:
-						ratio = 1-sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,self.n_comps-1,1)])
-					comp += 1
-
-					if i_contrib < n_contribs:
-						contrib = self.Var_dict[f'contrib{i_contrib}'] 
-					else:
-						contrib = (1-sum([self.Var_dict[f'contrib{r}'] for r in np.arange(0,n_contribs,1)]))
-					#
-					y_val *= contrib * ratio
-
-					# print(f"Ratio: {ratio}, Contrib: {contrib}, Dimension {dim}, -, peak" + state["peak"] + state["state"])
-
-					# Plot
-					ax.plot(xm - self.numerical_peak, 
-							 y_val, c='grey', ls="--", zorder=2, linewidth=2.25,
-							 #label=f"Neg. component {comp}:{dim})"
-							 )
-					# Shade area under component
-					ax.fill_between(xm - self.numerical_peak, y_val, alpha=0.4, color='grey')
-
-				#
-				i_contrib += 1 
-				#
-			# Positive egh components
-			for dim in range(0,self.dimensions[1],1):
-				comp = 0
-				for state in self.states:
-					if state["state"] == 'gs':
-						y_val = self.pos_func(x=xm,mu=self.Var_dict[state["peak"]], 
-												sigma=self.Var_dict[f'sigma'], 
-												ptau=self.Var_dict[f'ptau{dim}'])
-					else:
-						y_val = self.pos_func(x=xm, mu=self.Var_dict[state["peak"]]+self.Var_dict[state["peak"]+"-"+state["state"]], 
-												sigma=self.Var_dict[f'sigma'], 
-												ptau=self.Var_dict[f'ptau{dim}'])
-					# normalize accounting for fit ratios
-					integral_cut = sum(y_val) * np.diff(xm)[0]
-					y_val = y_val / integral_cut * sum(n_cut) * dx[0]
-					
-					if (comp < self.n_comps-1):
-						ratio = self.Var_dict[f'ratio{comp}']
-					else:
-						ratio = 1-sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,self.n_comps-1,1)])
-					comp += 1
-
-					if i_contrib < n_contribs:
-						contrib = self.Var_dict[f'contrib{i_contrib}'] 
-					else:
-						contrib = (1-sum([self.Var_dict[f'contrib{r}'] for r in np.arange(0,n_contribs,1)]))
-					#
-					y_val *= contrib * ratio
-
-					# print(f"Ratio: {ratio}, Contrib: {contrib}, Dimension {dim}, +, peak" + state["peak"] + state["state"])
-					
-					# Plot
-					ax.plot(xm - self.numerical_peak, 
-							 y_val, c='grey', ls="--", zorder=2, linewidth=2.25,
-							 #label=f"Neg. component {comp}:{dim})"
-							 )
-					# Shade area under component
-					ax.fill_between(xm - self.numerical_peak, y_val, alpha=0.4, color='grey')
-
-				#
-				i_contrib += 1 
-				#
-
-        # add vlines
-		for vline in add_vlines:
-			ax.axvline(vline, c='b', linewidth=1, zorder=3, ls = '--')
-
-		
-		# Get y axis limits
-		ylims = ax.get_ylim()
-		if log:
-			ax.set_yscale("log")
-			ax.set_ylim(0.2,2*ylims[1])
-
-		# Zoom in on found peaks
-		if self.peaks.n_peaks != 0:
-			ax.set_xlim(self.peaks.earliest_left_base - xrange_mod[0] - self.numerical_peak, 
-					 self.peaks.latest_right_base + xrange_mod[1] - self.numerical_peak)
-			if focus != False:
-				ax.set_xlim(self.peaks.pos[focus] - 1200 - self.numerical_peak, 
-						 self.peaks.pos[focus] + 1200 - self.numerical_peak)
-
-		# Add axis labels
-		ax.set_xlabel(f'Time-of-Flight [ns] - {self.numerical_peak:.1f}ns', fontsize=fs_xlabel)
-		ax.set_ylabel(f'Counts per bin', fontsize=fs_ylabel)
-
-		# Set ticks size 
-		ax.tick_params(axis='both', which='major', labelsize=fs_ticks)
-
-		# Format Legend
-		if legend:
-			plt.legend(fontsize=fs_legend)
-
-		# Print preliminary on top
-		if prelim:
-			ax.text(0.5, 0.5, 'PRELIMINARY', transform=ax.transAxes,
-				fontsize=prelimfs, color='red', alpha=0.3,
-				ha='center', va='center', rotation=30)
-		if not external:
-			plt.tight_layout()
-
-		# Save plot
-		if file_out != False:
-			print(f"Plot fit save as {file_out}")
-			plt.savefig(file_out, dpi=600, transparent=True)
-
-
-		# Show plot on canvas
-		if silent == False:
-			plt.show()
-
-		# Clear canvas to avoid printing on top of other plot in batch mode
-		if silent:
-			plt.clf()
-
-		# return axis if external plotting is uesd
-		if external:
-			return fig, ax
