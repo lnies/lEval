@@ -481,7 +481,6 @@ class NUBASE():
         if not error:
             return fetched_value
         else: 
-            # if error, return sqrt of quadratically summed errors of single values (only one value for single ions, or more of molecules)
             return math.sqrt(fetched_value)
 
 class FitToDict:
@@ -642,6 +641,7 @@ class MRToFUtils(NUBASE):
         self.m_133Cs_err = self.get_value('133Cs', 'mass', error=True)
         #
         self.tof_calib_loaded = False
+
 
     # Functionality
 
@@ -804,7 +804,7 @@ class MRToFUtils(NUBASE):
         #
         return math.sqrt( (del_C_tof*C_tof_err)**2 + (del_m1 * m1_err)**2 + (del_m2 * m2_err)**2 )
 
-    #
+    # Peak identification
 
     def __calc_tof_params(self, m0, m1, tof0, tof1):
         """
@@ -841,7 +841,7 @@ class MRToFUtils(NUBASE):
         F1 = (self.a0 * np.sqrt(m - self.e_in_u) + self.b0) * 3/4  # Flight time into center of isep cavity, aka pulse down delay. Scaling factor 3/4 depends on location of detector from which total flight time outside of device is determined.
         MCP = 1/3*F1 # Flight time from center of isep cavity to detector, changes between EMP2h and EMP3h
         return F1, MCP
-    
+
     def calc_ToF(self, m, nrevs = 1000, a0=None, b0=None, a1=None, b1=None, revsN2=None):
         """
         Calculates the ToF for a mass m at nrevs for given calibration parameters. Those can either 
@@ -856,7 +856,6 @@ class MRToFUtils(NUBASE):
             return False
         #
         F1, MCP = self.__calc_tof_outside_device(m)
-        # Calculate trapping time TG1: total tof for mass m at calibration number of revs - flight time outside mrtof divided by actual number of revs
         TG1 = ((self.a1 * np.sqrt(m) + self.b1) - F1 - MCP ) / self.revN2 * int(nrevs) 
         tof = TG1 + F1 + MCP 
         return tof
@@ -1411,6 +1410,7 @@ class Peaks:
                 ax.axvline(self.pos[i], c='r', linewidth=1, zorder=3)
         
         xm = np.linspace(xe[0], xe[-1], num=1000)
+        plt.legend();
         # plt.xlim(peaks.pos[0]-300, peaks.pos[0]+300)
 
         # add vlines
@@ -1435,7 +1435,6 @@ class Peaks:
 
         if not external:
             plt.tight_layout()
-            plt.legend()
 
         if not silent: 
             plt.show()
