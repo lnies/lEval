@@ -77,6 +77,7 @@ class FitMethods():
 		self.limits = {}
 		self.meta_data = {}
 		self.params = {}
+		self.xdata_unbinned = []
 		#
 		self.dimensions = [0,1] # dimensionality of fit function, e.g. number of shape parameters
 		self.n_comps = 1 # multiplicity of components for the fit function
@@ -156,8 +157,8 @@ class FitMethods():
 			for i in np.arange(len(xmin)):
 				n_in_int += len(self.lst_file.tof[(self.lst_file.tof > xmin[i]) & (self.lst_file.tof < xmax[i])])
 
-			# N = RooRealVar("N", "Extended term", n_in_int, n_in_int, n_in_int)
-			N = RooRealVar("N", "Extended term", n_in_int, n_in_int/2, n_in_int*2)
+			N = RooRealVar("N", "Extended term", n_in_int, n_in_int, n_in_int)
+			# N = RooRealVar("N", "Extended term", n_in_int, n_in_int/2, n_in_int*2)
 			# fitmodel = self.roodefs[0]
 			fitmodel = RooExtendPdf("extmodel", "Extended model", self.roodefs[0], N, ranges)
 			# fitmodel = RooExtendPdf("extmodel", "Extended model", self.roodefs[0], N, f"win_{self.roodefs[0].GetName()}_rangeFULL")
@@ -191,35 +192,53 @@ class FitMethods():
 		self.rerun = True
 		return roohist, result_mlkh
 	
-	def get_binning(self, bins=1):
+	def get_binning(self, bins=1, pre_bin_size=0.8):
 		"""
-		Adapts binning to multiples of 0.8ns, assuming that 0.8ns was used to take data (the common case)
+		Adapts binning to multiples of 0.8ns, assuming that 0.8ns (pre_bin_size) was used to take data (the common case)
 		"""
 		# Get min and max tof from data frame
 		self.bins = bins
-		minn = self.lst_file.tof.min()
-		maxx = self.lst_file.tof.max()
+		minn = self.xdata_unbinned.min()
+		maxx = self.xdata_unbinned.max()
 		# Avoid having empty binning when maxx is equal to minn
 		if minn == maxx:
 			maxx += 1
 		#
-		return round((maxx-minn)/0.8/self.bins)
+		return round((maxx-minn)/pre_bin_size/self.bins)
 
-	def lst2roothist(self, list_file, bins=1):
+	def data1d2roothist(self, data, bins=1, pre_bin_size=0.8):
+		'''
+		Converts 1d array of data into ROOT TH1D 
+		'''
+		# Safe the histogrammed data in arrays
+		self.xdata_unbinned = np.array(data)
+		# Get min and max tof from data frame
+		self.bins = bins
+		self.binning = self.get_binning(bins=self.bins, pre_bin_size=pre_bin_size)
+		minn = self.xdata_unbinned.min()
+		maxx = self.xdata_unbinned.max()
+		hist = ROOT.TH1D( 'hist', 'hist converted', self.binning, minn, maxx)
+		[hist.Fill(x) for x in self.xdata_unbinned]
+		self.y_data, self.x_data = np.histogram(self.xdata_unbinned, bins=self.binning)
+
+		return hist
+
+	def lst2roothist(self, list_file, bins=1, pre_bin_size=0.8):
 		"""
 		Converts .lst file to root histogram.
 
 		:return: root histogram
 		"""
+		# Safe the histogrammed data in arrays
+		self.xdata_unbinned = self.lst_file.tof
 		# Get min and max tof from data frame
 		self.bins = bins
+		self.binning = self.get_binning(self.bins, pre_bin_size)
 		minn = self.lst_file.tof.min()
 		maxx = self.lst_file.tof.max()
-		hist = ROOT.TH1D( 'hist', 'hist converted', self.get_binning(self.bins), minn, maxx)
+		hist = ROOT.TH1D( 'hist', 'hist converted', self.binning, minn, maxx)
 		[hist.Fill(x) for x in list_file.tof]
-		# Safe the histogrammed data in arrays
-		xdata = self.lst_file.tof
-		self.y_data, self.x_data = np.histogram(xdata, bins=self.get_binning(self.bins))
+		self.y_data, self.x_data = np.histogram(self.xdata_unbinned, bins=self.binning)
 		# Calculate counts per shot
 		self.cps = np.average(self.lst_file.sweep.value_counts()) 
 		self.cps_err = np.std(self.lst_file.sweep.value_counts())
@@ -439,7 +458,7 @@ class FitMethods():
 	def plot(self, bins = 1, log=False, focus=-1, xrange_mod = [800,3000], from_file = False, file_out=False, contribs = False,
 		silent=True, centroids=False, components=False, carpet=False, legend=True, style='errorbar',
 		fs_legend = 14, fs_xlabel = 20, fs_ylabel = 20, fs_ticks = 15, figsize = (6,4), add_vlines = [], 
-		prelim=False, prelimfs = 10,
+		prelim=False, prelimfs = 10, pre_bin_size = 0.8, 
 		external = False, fig = False, ax = False,
 		):
 		"""  
@@ -471,8 +490,7 @@ class FitMethods():
 			return 0 
 		#       
 		self.bins = bins
-		xdata = self.lst_file.tof
-		n, xe = np.histogram(xdata, bins=self.get_binning(self.bins))
+		n, xe = np.histogram(self.xdata_unbinned, bins=self.get_binning(self.bins, pre_bin_size))
 		# n = n/len(xdata)
 		cx = 0.5 * (xe[1:] + xe[:-1]) 
 		dx = np.diff(xe)
@@ -518,7 +536,7 @@ class FitMethods():
 					fmt="ok", zorder=1, label=f"Data (bins={bins})"
 			)
 		elif style == 'hist':
-			ax.hist((xdata - self.numerical_peak), bins=self.get_binning(bins=bins), color='grey', edgecolor='black', linewidth=0.1, label=f"Data (bins={bins})")
+			ax.hist((self.xdata_unbinned - self.numerical_peak), bins=self.get_binning(bins=bins, pre_bin_size=pre_bin_size), color='grey', edgecolor='black', linewidth=0.1, label=f"Data (bins={bins})")
 
 		# Normalize values
 		integral_cut = sum(y_val) * np.diff(xm)[0]
@@ -536,10 +554,10 @@ class FitMethods():
 		# Plot 'carpet'
 		if carpet:
 			if log:
-				ax.plot(xdata - self.numerical_peak, 
-						 np.zeros_like(xdata)+0.9, "|", alpha=0.1, zorder = 3)
-			ax.plot(xdata - self.numerical_peak, 
-					 np.zeros_like(xdata)-5, "|", alpha=0.1, zorder = 3)
+				ax.plot(self.xdata_unbinned - self.numerical_peak, 
+						 np.zeros_like(self.xdata_unbinned)+0.9, "|", alpha=0.1, zorder = 3)
+			ax.plot(self.xdata_unbinned - self.numerical_peak, 
+					 np.zeros_like(self.xdata_unbinned)-5, "|", alpha=0.1, zorder = 3)
 
 		# Plot numerical peak position and FWHM
 		if centroids:
@@ -723,13 +741,16 @@ class FitMethods():
 			ax.set_yscale("log")
 			ax.set_ylim(0.2,2*ylims[1])
 
-		# Zoom in on found peaks
-		if self.peaks.n_peaks != 0:
-			ax.set_xlim(self.peaks.earliest_left_base - xrange_mod[0] - self.numerical_peak, 
-					 self.peaks.latest_right_base + xrange_mod[1] - self.numerical_peak)
-			if focus != False:
-				ax.set_xlim(self.peaks.pos[focus] - 1200 - self.numerical_peak, 
-						 self.peaks.pos[focus] + 1200 - self.numerical_peak)
+		# Zoom in on found peaks if peaks were searched
+		if self.peaks != None:
+			if self.peaks.n_peaks != 0:
+				ax.set_xlim(self.peaks.earliest_left_base - xrange_mod[0] - self.numerical_peak, 
+						 self.peaks.latest_right_base + xrange_mod[1] - self.numerical_peak)
+				if focus != False:
+					ax.set_xlim(self.peaks.pos[focus] - 1200 - self.numerical_peak, 
+							 self.peaks.pos[focus] + 1200 - self.numerical_peak)
+		else:
+			ax.set_xlim(self.xmin, self.xmax)
 
 		# Add axis labels
 		ax.set_xlabel(f'Time-of-Flight [ns] - {self.numerical_peak:.1f}ns', fontsize=fs_xlabel)
@@ -938,10 +959,10 @@ class multiGauss(FitMethods):
 		"""
 		Initializes the class and number of parameters.
 		"""        
-		FitMethods.__init__(self, lst_file, file_path=file_path, name='double_gauss', peaks=peaks, verbose=verbose)
+		FitMethods.__init__(self, lst_file, file_path=file_path, name='multiGauss', peaks=peaks, verbose=verbose)
 		# self.setupUi(self)
 		# self.update_par_list()
-		self.fit_func_name = "doubleGauss"
+		self.fit_func_name = "multiGauss"
 		
 		if file_path == False: 
 			self.base_file_name = 'path_to_file'
@@ -969,8 +990,6 @@ class multiGauss(FitMethods):
 		"""
 		# Convert histogram
 		self.bins = bins
-		self.binning = self.get_binning(bins=self.bins)
-		self.hist = self.lst2roothist(self.lst_file, bins=1)
 		#
 		self.dimensions = dimensions 
 		self.n_comps = n_comps
