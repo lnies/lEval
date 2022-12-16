@@ -746,11 +746,10 @@ class FitMethods():
 			if self.peaks.n_peaks != 0:
 				ax.set_xlim(self.peaks.earliest_left_base - xrange_mod[0] - self.numerical_peak, 
 						 self.peaks.latest_right_base + xrange_mod[1] - self.numerical_peak)
-				if focus != False:
-					ax.set_xlim(self.peaks.pos[focus] - 1200 - self.numerical_peak, 
-							 self.peaks.pos[focus] + 1200 - self.numerical_peak)
+				if focus:
+					ax.set_xlim(self.xmin-self.numerical_peak, self.xmax-self.numerical_peak)
 		else:
-			ax.set_xlim(self.xmin, self.xmax)
+			ax.set_xlim(self.xmin-self.numerical_peak, self.xmax-self.numerical_peak)
 
 		# Add axis labels
 		ax.set_xlabel(f'Time-of-Flight [ns] - {self.numerical_peak:.1f}ns', fontsize=fs_xlabel)

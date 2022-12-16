@@ -642,7 +642,6 @@ class MRToFUtils(NUBASE):
         #
         self.tof_calib_loaded = False
 
-
     # Functionality
 
     def load_isoltrap(self, data):
@@ -871,7 +870,6 @@ class MRToFUtils(NUBASE):
         tof0 = self.calc_ToF(m0, nrevs)
         self.revN2 = nrevs
         self.a1, self.b1 = self.__calc_tof_params(m0, m1, tof0, tof1)
-
 
 class MRToFIsotope(MRToFUtils):
     '''
@@ -1526,6 +1524,7 @@ class softCool(Peaks, ProcessorBase):
             # Read data
             for f in self.files:
                 self.df_dict[f] = pd.read_csv(f)
+
         if files == '' and isinstance(df, pd.DataFrame):
             # Read data
             self.df_dict['df'] = df
@@ -1544,8 +1543,11 @@ class softCool(Peaks, ProcessorBase):
         
         """
         #
+        self.tof = tof
+        self.tof_cut_left = tof_cut_left
+        self.tof_cut_right = tof_cut_right
         if initial_align:
-            self.__initial_align(tof, tof_cut_left, tof_cut_right)
+            self.__initial_align()
             # 
         # Sum all files
         if self.file_passed:
@@ -1553,21 +1555,19 @@ class softCool(Peaks, ProcessorBase):
         else:
             self.file = self.df_dict['df']
         #
-        self.coolfile = self.file.copy(deep=True) # copy for storing the cooled spectrum
+        if not self.post_cool:
+            self.coolfile = self.file.copy(deep=True) # copy for storing the cooled spectrum
         # Drop empty sweeps
         for idx in self.coolfile[self.coolfile.tof.isnull()].index:
             self.coolfile = self.coolfile.drop(idx)
 
-    def __initial_align(self, tof, tof_cut_left=300, tof_cut_right=300):
+    def __initial_align(self):
         """
         Aligns all input files to a weighted average ToF. Onl 
         Parameters:
             - file_list: array of files to be aligned with respect to each other
         """
         #
-        self.tof = tof
-        self.tof_cut_left = tof_cut_left
-        self.tof_cut_right = tof_cut_right
         weights = []
         averages = []
         weighted_average_tof = 0
@@ -1647,7 +1647,7 @@ class softCool(Peaks, ProcessorBase):
         if method=="mean" or "moving-average":
             self.corr_factors = [
                 # Take mean of slice through sweeps with tof cut 
-                np.mean(sublist.tof) 
+                np.median(sublist.tof) 
                 if len(sublist.tof) != 0
                 else 
                 0 
@@ -1718,16 +1718,16 @@ class softCool(Peaks, ProcessorBase):
         Return:
             - Dataframe with cooled ToF
         """
-        #
+        #    
         self.verbose = verbose
         # Prepare files for cooling
         self.__prepare_files(tof, tof_cut_left=tof_cut_left, tof_cut_right=tof_cut_right, initial_align=initial_align)
         # df to be cooled
         self.post_cool = post_cool
-        if not self.post_cool:
-            df_to_cool = self.file
-        else:
+        if self.post_cool:
             df_to_cool = self.coolfile
+        else:
+            df_to_cool = self.file
         #
         self.chunk_size = chunk_size
         tof_cut = [tof-tof_cut_left, tof+tof_cut_right]
@@ -1791,7 +1791,7 @@ class softCool(Peaks, ProcessorBase):
         # Export the cooled df
         return self.coolfile
         
-    def plot2d(self, bins=500, focus=False, log=False, alpha=0.1, lw = 2):
+    def plot2d(self, bins=500, focus=False, log=False, alpha=0.25, lw = 2):
         """
         Plot the 2d histograms to compare the corrected and not corrected values
         Parameters:
@@ -1805,15 +1805,15 @@ class softCool(Peaks, ProcessorBase):
         tof = self.file.tof
         sweep = self.file.sweep
         # Plot unbinned and un-corrected data
-        ax0.plot(tof, sweep, 'o', alpha=alpha, ms=2, label='unbinned data')
+        ax0.plot(tof-self.tof, sweep, 'o', alpha=alpha, ms=2, label='unbinned data')
         # Plot correction factors
         y_corr = range(int(self.coolfile.sweep.iloc[0]),int(self.coolfile.sweep.iloc[0])+len(self.corr_factors)*self.chunk_size, self.chunk_size)
         x_corr = self.corr_factors
-        ax0.plot(x_corr, y_corr, c='r', linewidth=lw, zorder=3)
+        ax0.plot(x_corr-self.tof, y_corr, c='r', linewidth=lw, zorder=3)
         # Plot corrected data
         tof = self.coolfile.tof
         sweep = self.coolfile.sweep
-        ax1.plot(tof, sweep, 'o', alpha=alpha, ms=2, label='unbinned data')
+        ax1.plot(tof-self.tof, sweep, 'o', alpha=alpha, ms=2, label='unbinned data')
         if self.post_cool:
             y_corr = range(int(self.coolfile.sweep.iloc[0]),int(self.coolfile.sweep.iloc[0])+len(self.corr_factors)*self.chunk_size, self.chunk_size)
             x_corr = self.corr_factors
@@ -1822,19 +1822,31 @@ class softCool(Peaks, ProcessorBase):
         # for i in range(self.n_peaks):
         #     plt.axvline(self.pos[i], c='r', linewidth=lw, zorder=3)
 
+        # Plot file limits
+        current_max_sweep = 0
+        for key in self.df_dict:
+            current_max_sweep += self.df_dict[key].sweep.max()
+            ax0.axhline(current_max_sweep, c='grey', linewidth=lw, zorder=1, ls='--')
+            ax1.axhline(current_max_sweep, c='grey', linewidth=lw, zorder=1, ls='--')
+
+
+
         # Plot ToF to align around
-        ax0.axvline(self.tof, c='b', linewidth=lw, zorder=3, ls='-')
-        ax0.axvline(self.tof - self.tof_cut_left, c='b', linewidth=lw, zorder=3, ls='--')
-        ax0.axvline(self.tof + self.tof_cut_right, c='b', linewidth=lw, zorder=3, ls='--')
+        ax0.axvline(0, c='b', linewidth=lw, zorder=2, ls='-')
+        ax0.axvline( - self.tof_cut_left, c='b', linewidth=lw, zorder=2, ls='--')
+        ax0.axvline( + self.tof_cut_right, c='b', linewidth=lw, zorder=2, ls='--')
 
-        ax1.axvline(self.tof, c='b', linewidth=lw, zorder=3, ls='-')
+        ax1.axvline(0, c='b', linewidth=lw, zorder=2, ls='-')
 
-        plt.xlabel("Time-of-Flight [ns]")
+        plt.xlabel(f"Time-of-Flight (ns) - {self.tof:.1f}ns")
         plt.ylabel("Rolling sweep number")
 
-        if not focus:
-            ax0.set_xlim(self.tof-1500, self.tof+1500)
-            ax1.set_xlim(self.tof-1500, self.tof+1500)
+        if focus:
+            ax0.set_xlim(-2*self.tof_cut_left, +2*self.tof_cut_right)
+            ax1.set_xlim(-2*self.tof_cut_left, +2*self.tof_cut_right)        
+        else:
+            ax0.set_xlim(-1500, +1500)
+            ax1.set_xlim(-1500, +1500)
 
         plt.tight_layout()
         plt.show()

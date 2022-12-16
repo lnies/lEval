@@ -55,17 +55,21 @@ class ProcessorBase():
 		if len(self.files) == 0:
 			print(f"(ProcessorBase.add_all): Data not processed yet or empty.")
 			return
+		# Create deep copy of df dict
+		df_dict_deepcopy = {}
+		for key in self.df_dict.keys():
+			df_dict_deepcopy[key] = self.df_dict[key].copy(deep=True)
 		# Adjust the sweep numbers
-		for i in np.arange(0, len(self.df_dict)):
+		for i in np.arange(0, len(df_dict_deepcopy)):
 			if i == 0: 
 				continue
-			key = list(self.df_dict.keys())[i]
+			key = list(df_dict_deepcopy.keys())[i]
 			# print(key)
-			key_m1 = list(self.df_dict.keys())[i-1]
-			# print(key_m1, self.df_dict[key_m1].iloc[-1]['sweep'])
-			self.df_dict[key]['sweep'] += self.df_dict[key_m1].iloc[-1]['sweep'] + 1
+			key_m1 = list(df_dict_deepcopy.keys())[i-1]
+			# print(key_m1, df_dict_deepcopy[key_m1].iloc[-1]['sweep'])
+			df_dict_deepcopy[key]['sweep'] += df_dict_deepcopy[key_m1].iloc[-1]['sweep'] + 1
 		#
-		df = pd.concat(self.df_dict, ignore_index=True)
+		df = pd.concat(df_dict_deepcopy, ignore_index=True)
 		# Save to file if file name is passed
 		if to_csv != False:
 			df.to_csv(to_csv, index=False)
