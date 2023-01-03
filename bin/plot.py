@@ -20,7 +20,7 @@ import math
 import time
 import mmap
 
-from utilities import FitToDict, Peaks, softCool
+from utilities import FitToDict
 
 def custom_colors():
 	# Color definition from coolors.co
@@ -264,7 +264,6 @@ def simple_fit_plot(df, fit_files, bins = 1, log=False, file_out=False, legend=T
 		if file_out != False:
 			print(f"Plot fit save as {file_out}")
 			plt.savefig(file_out, dpi=300)
-
 
 def plot_laser_on_off(df, bins = 10, n_per_laser = 100):
 	"""  

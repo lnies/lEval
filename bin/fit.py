@@ -26,10 +26,10 @@ import math
 import time
 import mmap
 
-ROOT.gSystem.Load('hyperEMG12_cxx.so')
-ROOT.gSystem.Load('hyperEMG12ex_cxx.so')
+# ROOT.gSystem.Load('hyperEMG12_cxx.so')
+# ROOT.gSystem.Load('hyperEMG12ex_cxx.so')
 
-from utilities import FitToDict, Peaks, softCool
+from utilities import FitToDict, Peaks, softCool, TOFPlot
 
 class FitMethods():
 	"""
@@ -76,8 +76,12 @@ class FitMethods():
 		self.fits_r = []
 		self.limits = {}
 		self.meta_data = {}
-		self.params = {}
-		self.xdata_unbinned = []
+		self.params = {} 
+		# 
+		if 'tof' in lst_file.columns:
+			self.xdata_unbinned = lst_file.tof # Only works if data is MR-ToF MS data
+		else:
+			self.xdata_unbinned = lst_file.energy
 		#
 		self.dimensions = [0,1] # dimensionality of fit function, e.g. number of shape parameters
 		self.n_comps = 1 # multiplicity of components for the fit function
@@ -256,12 +260,11 @@ class FitMethods():
 		self.binning = len(x)
 		self.x_data = x
 		self.y_data = y
-		minn = x[0]
-		maxx = x[-1]
+		minn = x.min()
+		maxx = x.max()
 		# create empty histogram with right binning
 		hist = ROOT.TH1D( 'hist', 'hist converted', self.bins, minn, maxx)
 		# fill histogram
-		i = 0
 		for el in y:
 			hist.SetBinContent(i, el)
 			i+=1
@@ -435,8 +438,8 @@ class FitMethods():
 			print(f"Fit file {file} has no fit values that were exported.")
 			return 0
 		#
-		xm = fitfromfile.fit['FIT-VALUES'].tof
-		y_val = fitfromfile.fit['FIT-VALUES'].fit
+		xm = np.array(fitfromfile.fit['FIT-VALUES'].tof)
+		y_val = np.array(fitfromfile.fit['FIT-VALUES'].fit)
 		self.xmin = float(fitfromfile.fit['META-DATA']['xmin'].split(",")[0].replace("[", "").replace("]", ""))
 		self.xmax = float(fitfromfile.fit['META-DATA']['xmax'].split(",")[-1].replace("]", "").replace("[", ""))
 		self.numerical_peak = float(fitfromfile.fit['META-DATA']['numerical_peak'])
@@ -490,14 +493,14 @@ class FitMethods():
 			return 0 
 		#       
 		self.bins = bins
-		n, xe = np.histogram(self.xdata_unbinned, bins=self.get_binning(self.bins, pre_bin_size))
-		# n = n/len(xdata)
-		cx = 0.5 * (xe[1:] + xe[:-1]) 
-		dx = np.diff(xe)
 
-		# Get fit and prepare fit parameters for plotting,
-		#	- Either from the call_pdf during the same program excecution
-		# 	- or from the fit file that saves the fit
+		# If fit is to be read from file
+		if from_file:
+			# Read fit file
+			xm, y_val = self.load_fit(from_file)
+			# self.xdata_unbinned = xm
+
+		# Get fit and prepare fit parameters for plotting, from the call_pdf during the same program excecution
 		if not from_file:
 			# X-Axis for fit
 			# Get fit ranges
@@ -512,10 +515,14 @@ class FitMethods():
 			y_val = []
 			for i in xm:
 				self.RooRealVar_dict['x'].setVal(i)
-				y_val.append(self.this_pdf.getVal(ROOT.RooArgSet(self.RooRealVar_dict['x'])))	
-		else:
-			# Read fit file
-			xm, y_val = self.load_fit(from_file)
+				y_val.append(self.this_pdf.getVal(ROOT.RooArgSet(self.RooRealVar_dict['x'])))
+				# print(self.this_pdf.getVal(ROOT.RooArgSet(self.RooRealVar_dict['x'])))	
+
+		# Histogram data
+		n, xe = np.histogram(self.xdata_unbinned, bins=self.get_binning(self.bins, pre_bin_size))
+		# n = n/len(xdata)
+		cx = 0.5 * (xe[1:] + xe[:-1]) 
+		dx = np.diff(xe)
 
 		# From infer the ground state / isomeric state character of peaks passed
 		#self.__infer_states(self.n_comps, fromm='fit-file')
@@ -949,6 +956,81 @@ class LanGauss(FitMethods):
 		# Show plot on canvas
 		if silent == False:
 			plt.show()
+
+class Polynomial(FitMethods):
+	"""
+	Simple polynomial fit
+	"""
+	def __init__(self, lst_file, file_path=False, peaks = 'findit', verbose=False):
+		"""
+		Initializes the class and number of parameters.
+		"""        
+		# QtWidgets.QWidget.__init__(self)
+		FitMethods.__init__(self, lst_file, 'polynomial', 2, peaks=peaks, verbose=verbose)
+		self.fit_func_name = "polynomial"
+		# self.setupUi(self)
+		# self.update_par_list()
+
+	def init_limits(self):
+		self.limits = {
+			'ml':[self.hist.GetMean(1), self.xmin, self.xmax],
+			'mg':[self.hist.GetMean(1), self.xmin, self.xmax],
+			'sl':[self.hist.GetStdDev(1), 0.01*self.hist.GetStdDev(1), 10*self.hist.GetStdDev(1)],
+			'sg':[self.hist.GetStdDev(1), 0.01*self.hist.GetStdDev(1), 10*self.hist.GetStdDev(1)],
+			'ratio':[0.5,0,1],
+		}
+
+	def call_pdf(self, xmin, xmax, limits = False, minos = True):
+		"""
+		Setup Variable, Parameters and PDF and performs fitting of the PDF to ROI data.
+		:param roi_hist: histogram to fit
+		:param xmin: range min for the fit
+		:param xmax: range max for the fit
+		:param index: peak index for display
+		:return list: containing all relevant information about the ROI histogram, PDF, parameters,
+					  PDF components and fit results
+		"""
+		# self.hist = self.lst2roothist(self.lst_file, bins=1)
+		self.xmin=xmin
+		self.xmax=xmax
+		self.hist.GetXaxis().SetRangeUser(xmin, xmax)
+		self.compose_title_unit(self.hist.GetXaxis().GetTitle())
+
+		# Initialize limits
+		if not limits:
+			self.init_limits()
+		else:
+			self.limits=limits
+
+
+
+		# Build variable dicitonary		
+		self.RooRealVar_dict['x'] = RooRealVar("x", self.rootitle, xmin, xmax, self.roounit)
+		#
+		self.RooRealVar_dict['a0'] = RooRealVar('a0', 'a0', self.limits['a0'][0], self.limits['a0'][1], self.limits['a0'][2])
+		self.RooRealVar_dict['a1'] = RooRealVar('a1', 'a1', self.limits['a1'][0], self.limits['a1'][1], self.limits['a1'][2])
+		# self.RooRealVar_dict['A'] = RooRealVar('A', 'A', self.limits['a1'][0], self.limits['a1'][1], self.limits['a1'][2])
+		#
+		self.this_pdf = ROOT.RooPolynomial("pol", "pol", self.RooRealVar_dict['x'], RooArgList(self.RooRealVar_dict['a0'],self.RooRealVar_dict['a1']), lowestOrder = 0)
+		
+		# norm = RooRealVar('events{}'.format(index), "Nb of Events", self.roi_counts)
+		# self.ext_this_pdf = RooExtendPdf('ext_gauss{}'.format(index), 'Ext Gaussian', self.this_pdf, norm)
+		self.roodefs = [self.this_pdf, self.RooRealVar_dict]
+
+		# Calculate numerical position of maximum and FWHM
+		mu = self.xmin
+		sigma = 1
+		self.numerical_peak, self.numerical_FWHM, self.numerical_FWHM_left, self.numerical_FWHM_right = self.find_peak_and_fwhm(mu, sigma)
+		# Store fit results in dict
+		for key in self.RooRealVar_dict:
+			self.Var_dict[key] = self.RooRealVar_dict[f'{key}'].getValV()
+
+
+		# self.fix_var(self.roodefs[2:], index)
+		self.this_roohist, self.fit_results = self.minimize(self.hist, xmin, xmax, minos=ROOT.kTRUE)
+		#
+		return [self.this_roohist, self.this_pdf, self.RooRealVar_dict, self.pstate,
+				self.my_name, self.spl_draw, self.rooCompon, self.fit_results]
 
 class multiGauss(FitMethods):
 	"""

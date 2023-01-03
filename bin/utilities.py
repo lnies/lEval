@@ -1257,7 +1257,131 @@ class MRToFIsotope(MRToFUtils):
         #
         df.to_csv(results_file, index=False)
 
-class Peaks:
+class TOFPlot():
+    """
+    Handling all MR-ToF MS related ToF Histograms. Takes data and matplotlib figure/axis.
+    :file:
+    :fig:
+    :ax:
+    """
+    def __init__(self, file):
+        self.file = file # dataframe with tof and sweeps
+        #
+        # if not external plotting
+        # plt.rcParams["figure.figsize"] = figsize
+        self.fig, self.ax = plt.subplots(nrows=1, ncols=1, figsize=(8.6,6))
+
+
+    def load_utils(self, utils):
+        """
+        Load an external instance of MRToFUtils
+        """
+        self.utils = utils
+
+    def get_binning(self, bins=1):
+        """
+        Adapts binning to multiples of 0.8ns, assuming that 0.8ns was used to take data (to common case)
+        """
+        # Get min and max tof from data frame
+        minn = self.file.tof.min()
+        maxx = self.file.tof.max()
+        # Avoid having empty binning when maxx is equal to minn
+        if minn == maxx:
+            maxx += 1
+        #
+        return round((maxx-minn)/0.8/bins)
+
+    def create_hist1d(self, bins = 10, log=False,
+            fs_labels = 25, fs_ticks = 20, figsize = (8.6,6), ylim = (),
+            style = 'errorbar', add_vlines = [], legend=False,
+        ):
+        '''
+        Takes figure and axis and fills with 1D Histogram
+        Parameters:
+        - bins: Number of bins to be rebinned. Default=10
+        - focus: if True, sets xlimits to first and last found peak
+        - log: if Ture, sets logscale on y-axis
+        - silent: if True, shows plot on canvas
+        - save: if True, uses path_to_file to save plot as .pdf
+        - path_to_file: path to save .pdf in
+        - add_vlines: array of tof values where vlines should be added
+        '''
+        #
+        xdata = self.file.tof
+        #
+        n, xe = np.histogram(xdata, bins=self.get_binning(bins))
+        cx = 0.5 * (xe[1:] + xe[:-1])
+        dx = np.diff(xe)
+
+        # Plot data
+        if style == 'errorbar':
+            # use sqrt(n) as error, if n==1 use smaller error to avoid having inifite long error bars in log-scale
+            self.ax.errorbar(cx, n, [val ** 0.5 if val != 1 else 0.75 for val in n] ,
+                    ecolor='black', elinewidth=1,  
+                    fmt="ok", zorder=1, label=f"Data (bins={bins})")
+            # self.ax.plot(xdata, np.zeros_like(xdata)-5, "|", alpha=0.1, label = "ToF Data", zorder = 3)
+            
+        elif style == 'hist':
+            self.ax.hist((xdata), bins=self.get_binning(bins=bins), color='grey', edgecolor='black', linewidth=0.1, label=f"Data (bins={bins})")
+
+
+        # plt.errorbar(cx, n, n ** 0.5, fmt="ok", zorder=1)
+        #
+        if log:
+            self.ax.set_yscale('log')
+        #
+        
+        xm = np.linspace(xe[0], xe[-1], num=1000)
+
+        if legend:
+            plt.legend()
+
+        # add vlines
+        for vline in add_vlines:
+            self.ax.axvline(vline, c='b', linewidth=1, zorder=3, ls = '--')
+
+        # 
+        if len(ylim) != 0:
+            self.ax.set_ylim(ylim[0], ylim[1])
+        
+        # Add axis labels
+        self.ax.set_xlabel(f'Time-of-Flight [ns]', fontsize=fs_labels)
+        self.ax.set_ylabel(f'Counts per bin', fontsize=fs_labels)
+
+        # Set ticks size 
+        self.ax.tick_params(axis='both', which='major', labelsize=fs_ticks)
+
+        # return self.fig, self.ax
+
+    def __add_isobar_line(self, vline, text):
+        """
+        Add vline to axis
+        """
+        self.ax.axvline(vline, c='b', linewidth=1, zorder=3, ls = '--')
+        self.ax.text(vline, 0.9, text, rotation=90, bbox=dict(facecolor='white', alpha=1), 
+            transform =self.ax.get_xaxis_transform(),
+            horizontalalignment='center',
+            verticalalignment='center',
+            fontsize=14,
+        )
+
+    def add_isobars(self, nrevs, A=None, iso_list=None):
+        """
+        Add vlines with calculated isobars to the plot
+        """
+        if iso_list is not None:
+            for isobar in iso_list:
+                vline = self.utils.calc_ToF(self.utils.get_value(isobar, value='mass', state='gs'), nrevs)*1e3
+                self.__add_isobar_line(vline, isobar)
+            return
+
+        if A is not None:
+            for idx,row in self.utils.ame[self.utils.ame.A==A].iterrows():
+                vline = self.utils.calc_ToF(self.utils.get_value(f'{A}{row["element"]}', value='mass', state='gs'), nrevs)*1e3
+                self.__add_isobar_line(vline, f'{A}{row["element"]}')
+            return
+
+class Peaks(TOFPlot):
     """ 
     Wrapper class for finding peaks in an MR-ToF MS spectrum
         dataframe containing the converted .lst content
@@ -1273,19 +1397,8 @@ class Peaks:
         self.peak_width_inbins = (3,100)
         self.peak_prominence = None
         self.peak_wlen = None
-
-    def get_binning(self, bins=10):
-        """
-        Adapts binning to multiples of 0.8ns, assuming that 0.8ns was used to take data (to common case)
-        """
-        # Get min and max tof from data frame
-        minn = self.file.tof.min()
-        maxx = self.file.tof.max()
-        # Avoid having empty binning when maxx is equal to minn
-        if minn == maxx:
-            maxx += 1
         #
-        return round((maxx-minn)/0.8/bins)
+        TOFPlot.__init__(self, df_file)
     
     def find_peaks(self, bins=10, peak_threshold = None, peak_min_distance = None, peak_min_height = None, peak_width_inbins = None, 
                    peak_prominence = None, peak_wlen = None):
@@ -1356,7 +1469,7 @@ class Peaks:
                 self.latest_peak_idx = i 
                 
     def plot(self, bins = 10, lines = True, focus=False, log=False, silent = False, 
-            fs_labels = 25, fs_ticks = 20, figsize = (6,4), ylim = (),
+            fs_labels = 25, fs_ticks = 20, figsize = (8.6,6), ylim = (),
             save = False, path_to_file = "peaks", style = 'errorbar', add_vlines = [],
             external = False, fig = None, ax = None):
         '''
@@ -1445,7 +1558,74 @@ class Peaks:
         if save:
             plt.savefig(path_to_file+".pdf", dpi=300)
             plt.clf()
+
+    def plottest(self, bins = 10, lines = True, focus=False, log=False, silent = False, 
+            fs_labels = 25, fs_ticks = 20, figsize = (8.6,6), ylim = (), legend = False,
+            save = False, path_to_file = "peaks", style = 'errorbar', add_vlines = [],
+            external = False, fig = None, ax = None):
+        '''
+        Plot 1D Histogram with found peaks.
+        Parameters:
+        - bins: Number of bins to be rebinned. Default=10
+        - lines: Draws lines where peaks are found. Default=True
+        - focus: if True, sets xlimits to first and last found peak
+        - log: if Ture, sets logscale on y-axis
+        - silent: if True, shows plot on canvas
+        - save: if True, uses path_to_file to save plot as .pdf
+        - path_to_file: path to save .pdf in
+        - add_vlines: array of tof values where vlines should be added
+        '''
+        #
+        if self.n_peaks == 0:
+            print("Not peaks, no plots :)")
+            return 0 
+        # Create plot
+        self.create_hist1d(style=style,bins=bins, log=log,
+                            fs_labels = fs_labels, fs_ticks = fs_ticks, figsize = figsize, ylim = ylim,
+                            # add_vlines = add_vlines,
+        )
+        if lines:
+            for i in range(self.n_peaks):
+                self.ax.axvline(self.pos[i], c='r', linewidth=1, zorder=3)
+                
+        # Zoom in on found peaks
+        if focus:
+            self.ax.set_xlim(self.earliest_left_base-200, self.latest_right_base+200)
+
+        # 
+        if len(ylim) != 0:
+            self.ax.set_ylim(ylim[0], ylim[1])
         
+        # Rewrite ticks based on first ToF peak found
+        originial_xticks = self.ax.get_xticks()
+        xticks = [tick+self.pos[0] for tick in originial_xticks-self.pos[0] + abs(originial_xticks-self.pos[0]).min()]
+        self.ax.set_xticks(xticks)
+        self.ax.set_xticklabels(labels=[f'{tick:.1f}' for tick in xticks-self.pos[0]])
+
+        # Add axis labels
+        self.ax.set_xlabel(f'Time-of-Flight (ns) + {self.pos[0]:.1f}ns', fontsize=fs_labels)
+        self.ax.set_ylabel(f'Counts per bin', fontsize=fs_labels)
+
+        # Set ticks size 
+        self.ax.tick_params(axis='both', which='major', labelsize=fs_ticks)
+
+        self.fig.set_size_inches(figsize)
+
+        if not external:
+            plt.tight_layout()
+
+        if not silent: 
+            plt.show()
+            # plt.clf()
+
+        # return axis if external plotting is uesd
+        if external:
+            return self.fig, self.ax
+        #
+        if save:
+            plt.savefig(path_to_file, dpi=300)
+            # plt.clf()
+   
     def plot2d(self, bins=500, y_bins=1, focus=-1, log=False):
         """
         Plot 2D Histogram with found peaks.
@@ -2033,3 +2213,5 @@ class ToFExtrapolation:
                  ref_legend_label='ISOLTRAP21 - AME20 [keV]',
                  x_share = False,
                 )
+
+#############################
