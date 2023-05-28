@@ -78,10 +78,13 @@ class FitMethods():
 		self.meta_data = {}
 		self.params = {} 
 		# 
-		if 'tof' in lst_file.columns:
-			self.xdata_unbinned = lst_file.tof # Only works if data is MR-ToF MS data
-		else:
-			self.xdata_unbinned = lst_file.energy
+		try:
+			if 'tof' in lst_file.columns:
+				self.xdata_unbinned = lst_file.tof # Only works if data is MR-ToF MS data
+			else:
+				self.xdata_unbinned = lst_file
+		except:
+			self.xdata_unbinned = lst_file
 		#
 		self.dimensions = [0,1] # dimensionality of fit function, e.g. number of shape parameters
 		self.n_comps = 1 # multiplicity of components for the fit function
@@ -459,7 +462,7 @@ class FitMethods():
 	# Plot functions
 
 	def plot(self, bins = 1, log=False, focus=-1, xrange_mod = [800,3000], from_file = False, file_out=False, contribs = False,
-		silent=True, centroids=False, components=False, carpet=False, legend=True, style='errorbar',
+		silent=True, centroids=False, components=False, carpet=False, legend=True, style='errorbar', lw_fit = 3,
 		fs_legend = 14, fs_xlabel = 20, fs_ylabel = 20, fs_ticks = 15, figsize = (6,4), add_vlines = [], 
 		prelim=False, prelimfs = 10, pre_bin_size = 0.8, 
 		external = False, fig = False, ax = False,
@@ -554,7 +557,7 @@ class FitMethods():
 
 		# Plot fit	
 		ax.plot(xm - self.numerical_peak, 
-				 y_val, label=f"{self.fit_func_name}({self.dimensions[0]},{self.dimensions[1]})", c='r', zorder=3, linewidth=3)
+				 y_val, label=f"{self.fit_func_name}({self.dimensions[0]},{self.dimensions[1]})", c='r', zorder=3, linewidth=lw_fit)
 		
 		ax.fill_between(xm - self.numerical_peak, y_val, alpha=0.4, color='grey')
 
@@ -756,10 +759,10 @@ class FitMethods():
 				if focus:
 					ax.set_xlim(self.xmin-self.numerical_peak, self.xmax-self.numerical_peak)
 		else:
-			ax.set_xlim(self.xmin-self.numerical_peak, self.xmax-self.numerical_peak)
+			ax.set_xlim(self.xmin-self.numerical_peak- xrange_mod[0], self.xmax-self.numerical_peak+ xrange_mod[1])
 
 		# Add axis labels
-		ax.set_xlabel(f'Time-of-Flight [ns] - {self.numerical_peak:.1f}ns', fontsize=fs_xlabel)
+		ax.set_xlabel(f'Time-of-Flight (ns) - {self.numerical_peak:.1f} ns', fontsize=fs_xlabel)
 		ax.set_ylabel(f'Counts per bin', fontsize=fs_ylabel)
 
 		# Set ticks size 
