@@ -776,25 +776,26 @@ class MRToFUtils(NUBASE):
         #
         return math.sqrt( (del_t*t_err)**2 + (del_t1*t1_err)**2 + (del_t2*t2_err)**2 )
         
-    def calc_sqrt_m(self, C_tof, m1, m2):
+    def calc_sqrt_m(self, C_tof, m1, m2, q1=1, q2=1):
         ###
-        ###     Calculation of the sqrt of the mass of the species of interest
+        ###     Calculation of the sqrt of the mass of the species of interest 
+        ###     using the reference mass-over-charge ratios (q defaults to 1)
         ###
-        Sigma_ref = math.sqrt(m1) + math.sqrt(m2)
-        Delta_ref = math.sqrt(m1) - math.sqrt(m2)
+        Sigma_ref = math.sqrt(m1/q1) + math.sqrt(m2/q1)
+        Delta_ref = math.sqrt(m1/q1) - math.sqrt(m2/q1)
         #
         return C_tof * Delta_ref + Sigma_ref/2 
 
-    def calc_sqrt_m_err(self, C_tof, C_tof_err, m1, m1_err, m2, m2_err):
+    def calc_sqrt_m_err(self, C_tof, C_tof_err, m1, m1_err, m2, m2_err, q1=1, q2=1):
         ###
         ###      Calculation of the err on the sqrt of the mass
         ###
-        del_C_tof = math.sqrt(m1) - math.sqrt(m2)
+        del_C_tof = math.sqrt(m1/q1) - math.sqrt(m2/q2)
         del_m1 = C_tof + 1/2
         del_m2 = - C_tof + 1/2
         #
-        sqrt_m1_err = 1/2 * m1**(-1/2) * m1_err
-        sqrt_m2_err = 1/2 * m2**(-1/2) * m2_err
+        sqrt_m1_err = 1/2 * (m1/q1)**(-1/2) * m1_err/q1
+        sqrt_m2_err = 1/2 * (m2/q2)**(-1/2) * m2_err/q2
         #
         return math.sqrt( (del_C_tof * C_tof_err)**2 + ( del_m1 * sqrt_m1_err )**2 + ( del_m2 * sqrt_m2_err )**2 )
 
@@ -804,18 +805,18 @@ class MRToFUtils(NUBASE):
         ###
         return 2 * sqrt_m * sqrt_m_err
 
-    def calc_m_err(self, C_tof, C_tof_err, m1, m1_err, m2, m2_err):
+    def calc_m_err(self, C_tof, C_tof_err, m1, m1_err, m2, m2_err, q1=1, q2=1):
         ###
         ###      Calculation of the mass error using error propagation
         ###
-        delta_ref = math.sqrt(m1) - math.sqrt(m2)
-        sigma_ref = math.sqrt(m1) + math.sqrt(m2)
+        delta_ref = math.sqrt(m1/q1) - math.sqrt(m2/q2)
+        sigma_ref = math.sqrt(m1/q1) + math.sqrt(m2/q2)
         #
         del_C_tof = 2 * C_tof * delta_ref**2 + delta_ref * sigma_ref
-        del_m1 = C_tof**2 * (1-m1**(-1/2)) + C_tof + 1/4 * (1+m1**(-1/2))
-        del_m2 = C_tof**2 * (1-m2**(-1/2)) + C_tof + 1/4 * (1+m2**(-1/2))
+        del_m1 = C_tof**2 * (1-(m1/q1)**(-1/2)) + C_tof + 1/4 * (1+(m1/q1)**(-1/2))
+        del_m2 = C_tof**2 * (1-(m2/q2)**(-1/2)) + C_tof + 1/4 * (1+(m2/q2)**(-1/2))
         #
-        return math.sqrt( (del_C_tof*C_tof_err)**2 + (del_m1 * m1_err)**2 + (del_m2 * m2_err)**2 )
+        return math.sqrt( (del_C_tof*C_tof_err)**2 + (del_m1 * m1_err/q1)**2 + (del_m2 * m2_err/q2)**2 )
 
     # Peak identification
 
@@ -979,6 +980,7 @@ class MRToFIsotope(MRToFUtils):
     def __store_tofs(self, file_isotope='', file_ref1='', file_ref2='',
                         t_isotope='', t_ref1='', t_ref2='',
                         t_isotope_err='', t_ref1_err='', t_ref2_err='',
+                        q=1, q1=1, q2=1,
                         centroid = 'mu0', online_ref = '', online_ref2 = '', tweak_tofs = [0,0,0],
                         is_doublet = False, dt = '', dt_err = '',
                         ):
@@ -987,6 +989,9 @@ class MRToFIsotope(MRToFUtils):
         """    
         #
         self.centroid = centroid
+        self.q = q
+        self.q1 = q1
+        self.q2 = q2
         #
         self.file_isotope = file_isotope
         # Store isotope of interest fit file
@@ -1094,6 +1099,7 @@ class MRToFIsotope(MRToFUtils):
     def calc_mass(self, file_isotope='', file_ref1='', file_ref2='',
                         t_isotope='', t_ref1='', t_ref2='',
                         t_isotope_err='', t_ref1_err='', t_ref2_err='',
+                        q = 1, q1 = 1, q2 = 2,
                         centroid = 'mu0', online_ref = '', online_ref2 = '',
                         tweak_tofs = [0,0,0],
                         print_results = False):
@@ -1102,6 +1108,7 @@ class MRToFIsotope(MRToFUtils):
         or in form of time-of-flights
             - file_isotope, file_ref1, file_ref2: path to fit files to be used
             - t_isotope, t_ref1, t_ref2: time-of-flights to be used. Overwrites the ToFs fetched from fit files
+            - q, q1, q2: charge states of mass of interest and of the two reference masses. Default to 1
             - centroid: time-of-flight centroid to be used to calculate mass ['mu0', 'numerical_mean']
             - tweak_tofs: array [tof_isotope, tof_ref1, tof_ref2] that add tof to the extracted values from the fit files to tweak the mass and see influence of tof drifts
             - online_ref and online_ref2: centroid of online references 1 and 2
@@ -1109,17 +1116,17 @@ class MRToFIsotope(MRToFUtils):
         '''
         # Store ToFs
         self.__store_tofs(file_isotope, file_ref1, file_ref2,t_isotope, t_ref1, t_ref2, t_isotope_err, 
-                            t_ref1_err, t_ref2_err, centroid, online_ref, online_ref2, tweak_tofs)
+                            t_ref1_err,  t_ref2_err, q, q1, q2, centroid, online_ref, online_ref2, tweak_tofs)
         #
         self.C_tof = self.calc_C_ToF(self.isotope_gs_t, self.ref1_t, self.ref2_t)
         self.C_tof_err = self.calc_C_ToF_err(t=self.isotope_gs_t, t_err=self.isotope_gs_t_err,
                                                        t1=self.ref1_t, t1_err=self.ref1_t_err,
                                                        t2=self.ref2_t, t2_err=self.ref2_t_err)
         #
-        self.m_isotope = self.calc_sqrt_m(self.C_tof, self.m_ref1, self.m_ref2)**2
+        self.m_isotope = self.calc_sqrt_m(self.C_tof, self.m_ref1, self.m_ref2)**2 * self.q 
         self.m_isotope_err = self.calc_m_err(self.C_tof, self.C_tof_err, 
                                                self.m_ref1, self.m_ref1_err/self.u ,
-                                               self.m_ref2, self.m_ref2_err/self.u)
+                                               self.m_ref2, self.m_ref2_err/self.u) * self.q
 
         self.me_isotope = (self.m_isotope-self.A) * self.u # [keV]
         self.me_isotope_err = self.m_isotope_err * self.u # [keV]
