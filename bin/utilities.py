@@ -170,6 +170,16 @@ class NUBASE():
                                           index_col=False)
             else:
                 print(f"(error in NUBASE.__init__): Wrong version parsed. Only 'ame20' available.")
+            # First use the "#" that indicate extrapolated values to fetch the information whether the mass is extrapolated or not
+            self.ame['extrapolated'] = [
+                False 
+                if len(value.split("#")) < 2 # if this is the case, it's not extrapolated
+                else # Otherwise it is extrapolated
+                True
+                for value 
+                in self.ame['mass_excess']
+            ]
+
             # Calculate binding energies (same as ebinding*A) and format mass excess column
             self.ame['mass_excess'] = [
                 float(str(value).strip("#"))
@@ -187,6 +197,8 @@ class NUBASE():
         except(Exception) as err: 
             print(f"(error in NUBASE.__init__): Could not load AME: {err}.")
 
+        # Apply mass filters to AME
+        # self.apply_mass_filters()
         
         # Init NUBASE dataframe
         try:
@@ -207,6 +219,8 @@ class NUBASE():
         except(Exception) as err: 
             print(f"(error in NUBASE.__init__): Could not load NUBASE: {err}.")
    
+
+
     def apply_mass_filters(self):
         """
         Function to apply mass filters to dataframe from self.ame
@@ -811,6 +825,8 @@ class MRToFUtils(NUBASE):
         """
         a = (tof0-tof1)/(math.sqrt(m0)-math.sqrt(m1))
         b = tof0 - a * math.sqrt(m0)
+        print((tof0-tof1))
+        print(math.sqrt(m0))
         return a, b
 
     def load_tof_calib(self, file):
@@ -866,10 +882,16 @@ class MRToFUtils(NUBASE):
         # F1, MCP = self.__calc_tof_outside_device(m)
         # TG1 = tof - F1 - MCP
         # self.a1 = ((TG1 * int(self.revN2) / int(nrevs)) + F1 + MCP - self.b1) / np.sqrt(m) / 1e3 # calculate a1 from absolute ToF and convert to micro-seconds 
-        m0 = self.m0
-        tof0 = self.calc_ToF(m0, nrevs)
-        self.revN2 = nrevs
-        self.a1, self.b1 = self.__calc_tof_params(m0, m1, tof0, tof1)
+        if nrevs != 0:
+            m0 = self.m0
+            tof0 = self.calc_ToF(m0, nrevs)
+            self.revN2 = nrevs
+            self.a1, self.b1 = self.__calc_tof_params(m0, m1, tof0, tof1)
+        else:
+            m0 = self.m0
+            tof0 = self.calc_ToF(m0, nrevs)
+            self.revN2 = nrevs
+            self.a0, self.b0 = self.__calc_tof_params(m0, m1, tof0, tof1)
 
 class MRToFIsotope(MRToFUtils):
     '''
@@ -1270,7 +1292,7 @@ class TOFPlot():
         # if not external plotting
         # plt.rcParams["figure.figsize"] = figsize
         self.fig, self.ax = plt.subplots(nrows=1, ncols=1, figsize=(8.6,6))
-
+        # plt.close() # close window if created, not needed yet
 
     def load_utils(self, utils):
         """
@@ -1345,7 +1367,7 @@ class TOFPlot():
             self.ax.set_ylim(ylim[0], ylim[1])
         
         # Add axis labels
-        self.ax.set_xlabel(f'Time-of-Flight [ns]', fontsize=fs_labels)
+        self.ax.set_xlabel(f'Time-of-Flight (ns)', fontsize=fs_labels)
         self.ax.set_ylabel(f'Counts per bin', fontsize=fs_labels)
 
         # Set ticks size 
@@ -1380,6 +1402,18 @@ class TOFPlot():
                 vline = self.utils.calc_ToF(self.utils.get_value(f'{A}{row["element"]}', value='mass', state='gs'), nrevs)*1e3
                 self.__add_isobar_line(vline, f'{A}{row["element"]}')
             return
+
+    def add_clusters(self, isotope, nrange, nrevs):
+        """
+        Add vlines for calculated cluster sizes
+        """
+        for n in nrange:
+            #
+            mass = n * self.utils.get_value(isotope, value='mass', state='gs')
+            vline = self.utils.calc_ToF(mass, nrevs)*1e3
+            self.__add_isobar_line(vline, f'n={n}')
+        return
+
 
 class Peaks(TOFPlot):
     """ 
