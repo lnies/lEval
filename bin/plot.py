@@ -22,38 +22,6 @@ import mmap
 
 from utilities import FitToDict
 
-def custom_colors():
-	# Color definition from coolors.co
-	colors = {
-		# https://coolors.co/d1495b-edae49-abe188-1a6fdf-0c0a3e
-		'Fall_rgb': {'red':'#D1495B', 'orange':'#EDAE49', 'green':'#ABE188','blue':'#1A6FDF','purple':'#0C0A3E'},
-		'Jo-s_favs': 
-		{				
-						'black': "#000000",
-						'red': "#FF2D55", 
-						'blue': "#00A2FF",
-						'orange': "#FFCC00", 
-						'green': "#61D935",
-						'lightgreen': "#a9ff8a", 
-						'grey': "#C0C0C0", 
-						'purple': "#C177DA",
-						'lightpurple': "#e8c1f5",
-						'lightblue': "#6FF1E9",
-						'lightlightblue': "#d5f7f5",
-		},
-		'indiumprl':
-		{
-			'black': "#000000",
-			'red': "#FF2D55", 
-			'blue': "#00A2FF",
-			'orange': "#FFCC00", 
-			'green': "#4DAF4A",
-			'purple': "#984EA3",
-		}
-
-	}
-	return colors
-
 def simple_error_plt(y, y_err, x='', x_labels='', \
 					 label = ["ISOLTRAP"], x_label='', y_label=[''], title='', \
 					 ref_value=None, ref_err=None, ref_legend_label='AME20 Error', ref_axis=0,
