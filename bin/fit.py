@@ -464,8 +464,8 @@ class FitMethods():
 	def plot(self, bins = 1, log=False, focus=-1, xrange_mod = [800,3000], from_file = False, file_out=False, contribs = False,
 		silent=True, centroids=False, components=False, carpet=False, legend=True, style='errorbar', lw_fit = 3,
 		fs_legend = 14, fs_xlabel = 20, fs_ylabel = 20, fs_ticks = 15, figsize = (6,4), add_vlines = [], 
-		prelim=False, prelimfs = 10, pre_bin_size = 0.8, 
-		external = False, fig = False, ax = False,
+		prelim=False, prelimfs = 10, pre_bin_size = 0.8, fitalpha = 1.0, histalpha = 1.0, histlw = 0.1, fitzorder = 2, histzorder = 1, 
+		external = False, fig = False, ax = False, 
 		):
 		"""  
 		Wrapper for plotting the fit and data
@@ -484,6 +484,8 @@ class FitMethods():
 			- add_vlnies: Array-like, adds vlines at ToF values entered throug array
 			- prelim: adds preliminary watermark
 			- prelimfs: preliminary watermark font size
+			- fitalpha: alpha of fit
+			- fitzorder, histzorder: zorders for plot
 			- external: if rountine is to be used to plot onto an external canvas. requires fig and axis to be passed. axis will be then returned
 		"""
 		# if not external plotting
@@ -546,7 +548,9 @@ class FitMethods():
 					fmt="ok", zorder=1, label=f"Data (bins={bins})"
 			)
 		elif style == 'hist':
-			ax.hist((self.xdata_unbinned - self.numerical_peak), bins=self.get_binning(bins=bins, pre_bin_size=pre_bin_size), color='grey', edgecolor='black', linewidth=0.1, label=f"Data (bins={bins})")
+			ax.hist((self.xdata_unbinned - self.numerical_peak), bins=self.get_binning(bins=bins, pre_bin_size=pre_bin_size), 
+				color='grey', edgecolor='black', linewidth=histlw,  alpha = histalpha, histtype='step', label=f"Data (bins={bins})",
+				zorder=histzorder)
 
 		# Normalize values
 		integral_cut = sum(y_val) * np.diff(xm)[0]
@@ -557,7 +561,9 @@ class FitMethods():
 
 		# Plot fit	
 		ax.plot(xm - self.numerical_peak, 
-				 y_val, label=f"{self.fit_func_name}({self.dimensions[0]},{self.dimensions[1]})", c='r', zorder=3, linewidth=lw_fit)
+				y_val, label=f"{self.fit_func_name}({self.dimensions[0]},{self.dimensions[1]})", c='r', linewidth=lw_fit, alpha=fitalpha,
+				zorder = fitzorder,
+		)
 		
 		ax.fill_between(xm - self.numerical_peak, y_val, alpha=0.4, color='grey')
 
