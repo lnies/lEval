@@ -32,6 +32,45 @@ from process import ProcessorBase, MPANTMpa, MCS6Lst
 
 FILE_LOCATION = os.path.dirname(__file__)+"/"
 
+def custom_colors():
+    # best.col style 2d heat map
+    nipy_spectral = mpl.colormaps.get_cmap('nipy_spectral')
+    newcolors = nipy_spectral(np.linspace(0, 1, 256))
+    newcolors = newcolors[120:240,:]
+    white = np.array([1, 1, 1, 1])
+    newcolors[:1, :] = white
+    newcmp = mpl.colors.ListedColormap(newcolors)
+    # Color definition from coolors.co
+    colors = {
+        # https://coolors.co/d1495b-edae49-abe188-1a6fdf-0c0a3e
+        'Fall_rgb': {'red':'#D1495B', 'orange':'#EDAE49', 'green':'#ABE188','blue':'#1A6FDF','purple':'#0C0A3E'},
+        'Jo-s_favs': 
+        {               
+                        'black': "#000000",
+                        'red': "#FF2D55", 
+                        'blue': "#00A2FF",
+                        'orange': "#FFCC00", 
+                        'green': "#61D935",
+                        'lightgreen': "#a9ff8a", 
+                        'grey': "#C0C0C0", 
+                        'purple': "#C177DA",
+                        'lightpurple': "#e8c1f5",
+                        'lightblue': "#6FF1E9",
+                        'lightlightblue': "#d5f7f5",
+        },
+        'indiumprl':
+        {
+            'black': "#000000",
+            'red': "#FF2D55", 
+            'blue': "#00A2FF",
+            'orange': "#FFCC00", 
+            'green': "#4DAF4A",
+            'purple': "#984EA3",
+        },
+        'best.col2d': newcmp
+    }
+    return colors
+
 def get_time_of_measurement(file, as_datetime = False):
     """
     Fetches time of measurement from data file 
@@ -170,6 +209,16 @@ class NUBASE():
                                           index_col=False)
             else:
                 print(f"(error in NUBASE.__init__): Wrong version parsed. Only 'ame20' available.")
+            # First use the "#" that indicate extrapolated values to fetch the information whether the mass is extrapolated or not
+            self.ame['extrapolated'] = [
+                False 
+                if len(value.split("#")) < 2 # if this is the case, it's not extrapolated
+                else # Otherwise it is extrapolated
+                True
+                for value 
+                in self.ame['mass_excess']
+            ]
+
             # Calculate binding energies (same as ebinding*A) and format mass excess column
             self.ame['mass_excess'] = [
                 float(str(value).strip("#"))
@@ -181,19 +230,35 @@ class NUBASE():
                 for value 
                 in self.ame['mass_excess_err']
             ]
+            # Also remove # from atomic masses
+            self.ame['atomic_mass_comma'] = [
+                float(str(value).strip("#"))
+                for value 
+                in self.ame['atomic_mass_comma']
+            ]
+            self.ame['atomic_mass_err'] = [
+                float(str(value).strip("#"))
+                for value 
+                in self.ame['atomic_mass_err']
+            ]
+            #
             self.ame['binding_energy'] = self.ame['mass_excess'] - self.ame['Z'] * self.get_value('1H', 'mass_excess') - self.ame['N'] * self.get_value('1n', 'mass_excess')
             self.ame['binding_energy_err'] = np.sqrt( (self.ame['mass_excess_err'])**2 + (self.ame['Z']*self.get_value('1H', 'mass_excess', error=True))**2 + (self.ame['N']*self.get_value('1n', 'mass_excess', error=True))**2)
+            # Elements as strings
+            self.ame['Aelsymbl'] = [str(row.A)+row.element for idx, row in self.ame.iterrows()]
 
         except(Exception) as err: 
             print(f"(error in NUBASE.__init__): Could not load AME: {err}.")
 
+        # Apply mass filters to AME
+        # self.apply_mass_filters()
         
         # Init NUBASE dataframe
         try:
             if self.nubase_version == 'nubase20':
                 self.nubase = pd.read_fwf(path_to_nubase, #usecols=(2,3,4,6,9,10,11,12,18,21,20),
                                       names=[
-                                          "A", "ZZZ", "element", "s", "mass_excess", "mass_excess_err", "excitation_energy", "excitation_energy_err",
+                                          "A", "Z", "element", "s", "mass_excess", "mass_excess_err", "excitation_energy", "excitation_energy_err",
                                           "origin", "isom_unc", "isom_inv", "half_life", "half_life_unit", "half_life_err", "Jpi",
                                           "ensdf_year", "discovery", "branch_ratio"
                                       ],
@@ -202,6 +267,23 @@ class NUBASE():
                                       index_col=False)          
                 # Remove mass number from element column
                 self.nubase["element"] = [re.split("(\\d+)",row["element"])[2] for idx, row in self.nubase.iterrows()]
+                # Elements as strings
+                self.nubase['Aelsymbl'] = [str(row.A)+row.element for idx, row in self.nubase.iterrows()]
+
+                # Convert Z and N
+                self.nubase["Z"] = [int(row['Z'])/10 for idx, row in self.nubase.iterrows()]
+                self.nubase["N"] = self.nubase["A"] - self.nubase["Z"]
+                #
+                # First use the "#" that indicate extrapolated values to fetch the information whether the mass is extrapolated or not
+                self.nubase['extrapolated'] = [
+                    False 
+                    if len(str(value).split("#")) < 2 # if this is the case, it's not extrapolated
+                    else # Otherwise it is extrapolated
+                    True
+                    for value 
+                    in self.nubase['mass_excess']
+                ]
+
             else:
                 print(f"(error in NUBASE.__init__): Wrong version parsed. Only 'ame20' available.")
         except(Exception) as err: 
@@ -603,7 +685,7 @@ class FitToDict:
                 if value not in self.fit['RESULTS-TABLE'].columns:
                     print("Value {value} not in dataframe")
                     return 
-                return(float( self.fit['RESULTS-TABLE'][value][self.fit['RESULTS-TABLE']['var']==key] ))
+                return(float(self.fit['RESULTS-TABLE'][value][self.fit['RESULTS-TABLE']['var']==key].iloc[0]))
         #
         else:
             print(f"Key {key} does not exist in the fit dictionary.")
@@ -641,7 +723,6 @@ class MRToFUtils(NUBASE):
         self.m_133Cs_err = self.get_value('133Cs', 'mass', error=True)
         #
         self.tof_calib_loaded = False
-
 
     # Functionality
 
@@ -763,25 +844,26 @@ class MRToFUtils(NUBASE):
         #
         return math.sqrt( (del_t*t_err)**2 + (del_t1*t1_err)**2 + (del_t2*t2_err)**2 )
         
-    def calc_sqrt_m(self, C_tof, m1, m2):
+    def calc_sqrt_m(self, C_tof, m1, m2, q1=1, q2=1):
         ###
-        ###     Calculation of the sqrt of the mass of the species of interest
+        ###     Calculation of the sqrt of the mass of the species of interest 
+        ###     using the reference mass-over-charge ratios (q defaults to 1)
         ###
-        Sigma_ref = math.sqrt(m1) + math.sqrt(m2)
-        Delta_ref = math.sqrt(m1) - math.sqrt(m2)
+        Sigma_ref = math.sqrt(m1/q1) + math.sqrt(m2/q1)
+        Delta_ref = math.sqrt(m1/q1) - math.sqrt(m2/q1)
         #
         return C_tof * Delta_ref + Sigma_ref/2 
 
-    def calc_sqrt_m_err(self, C_tof, C_tof_err, m1, m1_err, m2, m2_err):
+    def calc_sqrt_m_err(self, C_tof, C_tof_err, m1, m1_err, m2, m2_err, q1=1, q2=1):
         ###
         ###      Calculation of the err on the sqrt of the mass
         ###
-        del_C_tof = math.sqrt(m1) - math.sqrt(m2)
+        del_C_tof = math.sqrt(m1/q1) - math.sqrt(m2/q2)
         del_m1 = C_tof + 1/2
         del_m2 = - C_tof + 1/2
         #
-        sqrt_m1_err = 1/2 * m1**(-1/2) * m1_err
-        sqrt_m2_err = 1/2 * m2**(-1/2) * m2_err
+        sqrt_m1_err = 1/2 * (m1/q1)**(-1/2) * m1_err/q1
+        sqrt_m2_err = 1/2 * (m2/q2)**(-1/2) * m2_err/q2
         #
         return math.sqrt( (del_C_tof * C_tof_err)**2 + ( del_m1 * sqrt_m1_err )**2 + ( del_m2 * sqrt_m2_err )**2 )
 
@@ -791,18 +873,18 @@ class MRToFUtils(NUBASE):
         ###
         return 2 * sqrt_m * sqrt_m_err
 
-    def calc_m_err(self, C_tof, C_tof_err, m1, m1_err, m2, m2_err):
+    def calc_m_err(self, C_tof, C_tof_err, m1, m1_err, m2, m2_err, q1=1, q2=1):
         ###
         ###      Calculation of the mass error using error propagation
         ###
-        delta_ref = math.sqrt(m1) - math.sqrt(m2)
-        sigma_ref = math.sqrt(m1) + math.sqrt(m2)
+        delta_ref = math.sqrt(m1/q1) - math.sqrt(m2/q2)
+        sigma_ref = math.sqrt(m1/q1) + math.sqrt(m2/q2)
         #
         del_C_tof = 2 * C_tof * delta_ref**2 + delta_ref * sigma_ref
-        del_m1 = C_tof**2 * (1-m1**(-1/2)) + C_tof + 1/4 * (1+m1**(-1/2))
-        del_m2 = C_tof**2 * (1-m2**(-1/2)) + C_tof + 1/4 * (1+m2**(-1/2))
+        del_m1 = C_tof**2 * (1-(m1/q1)**(-1/2)) + C_tof + 1/4 * (1+(m1/q1)**(-1/2))
+        del_m2 = C_tof**2 * (1-(m2/q2)**(-1/2)) + C_tof + 1/4 * (1+(m2/q2)**(-1/2))
         #
-        return math.sqrt( (del_C_tof*C_tof_err)**2 + (del_m1 * m1_err)**2 + (del_m2 * m2_err)**2 )
+        return math.sqrt( (del_C_tof*C_tof_err)**2 + (del_m1 * m1_err/q1)**2 + (del_m2 * m2_err/q2)**2 )
 
     # Peak identification
 
@@ -812,6 +894,8 @@ class MRToFUtils(NUBASE):
         """
         a = (tof0-tof1)/(math.sqrt(m0)-math.sqrt(m1))
         b = tof0 - a * math.sqrt(m0)
+        print((tof0-tof1))
+        print(math.sqrt(m0))
         return a, b
 
     def load_tof_calib(self, file):
@@ -856,22 +940,31 @@ class MRToFUtils(NUBASE):
             return False
         #
         F1, MCP = self.__calc_tof_outside_device(m)
-        TG1 = ((self.a1 * np.sqrt(m) + self.b1) - F1 - MCP ) / self.revN2 * int(nrevs) 
-        tof = TG1 + F1 + MCP 
+        if nrevs != 0:
+            TG1 = ((self.a1 * np.sqrt(m) + self.b1) - F1 - MCP ) / self.revN2 * int(nrevs) 
+            tof = TG1 + F1 + MCP 
+        else:
+            tof = F1 + MCP
         return tof
 
-    def recalibrate_tof(self, m1, tof1, nrevs):
+    def recalibrate_tof(self, new_m1, new_tof1, nrevs, new_m0 = False, new_tof0 = False):
         """
         Receives ToF of a known mass at nrevs and recalculates the a1 parameter
         """
         # F1, MCP = self.__calc_tof_outside_device(m)
         # TG1 = tof - F1 - MCP
         # self.a1 = ((TG1 * int(self.revN2) / int(nrevs)) + F1 + MCP - self.b1) / np.sqrt(m) / 1e3 # calculate a1 from absolute ToF and convert to micro-seconds 
-        m0 = self.m0
-        tof0 = self.calc_ToF(m0, nrevs)
-        self.revN2 = nrevs
-        self.a1, self.b1 = self.__calc_tof_params(m0, m1, tof0, tof1)
-
+        if nrevs != 0:
+            m0 = self.m0
+            tof0 = self.calc_ToF(m0, nrevs)
+            self.revN2 = nrevs
+            self.a1, self.b1 = self.__calc_tof_params(m0, new_m1, tof0, new_tof1)
+        else:
+            # If shooting through is recaclibrated, recalculate a0 and b0
+            if new_m0 and new_tof0:
+                self.a0, self.b0 = self.__calc_tof_params(new_m0, new_m1, new_tof0, new_tof1)
+            else:
+                self.a0, self.b0 = self.__calc_tof_params(self.m0, new_m1, self.tofm0_0, new_tof1)
 
 class MRToFIsotope(MRToFUtils):
     '''
@@ -959,6 +1052,7 @@ class MRToFIsotope(MRToFUtils):
     def __store_tofs(self, file_isotope='', file_ref1='', file_ref2='',
                         t_isotope='', t_ref1='', t_ref2='',
                         t_isotope_err='', t_ref1_err='', t_ref2_err='',
+                        q=1, q1=1, q2=1,
                         centroid = 'mu0', online_ref = '', online_ref2 = '', tweak_tofs = [0,0,0],
                         is_doublet = False, dt = '', dt_err = '',
                         ):
@@ -967,6 +1061,9 @@ class MRToFIsotope(MRToFUtils):
         """    
         #
         self.centroid = centroid
+        self.q = q
+        self.q1 = q1
+        self.q2 = q2
         #
         self.file_isotope = file_isotope
         # Store isotope of interest fit file
@@ -1008,8 +1105,8 @@ class MRToFIsotope(MRToFUtils):
         self.file_ref1 = file_ref1
         if file_ref1 != '' and t_ref1 == '' and online_ref == '':
             self.ref1_fit = FitToDict(file_ref1)
-            self.ref1_t = float(self.ref1_fit.get_val(centroid, 'value')) + tweak_tofs[1]
-            self.ref1_t_err = float(self.ref1_fit.get_val(centroid, 'error'))
+            self.ref1_t = float(self.ref1_fit.get_val('mu0', 'value')) + tweak_tofs[1]
+            self.ref1_t_err = float(self.ref1_fit.get_val('mu0', 'error'))
         elif file_isotope != '' and file_ref1 != '' and t_ref1 == '' and online_ref != '':
             self.ref1_t = float(self.isotope_fit.get_val(online_ref, 'value')) + tweak_tofs[1]
             self.ref1_t_err = float(self.isotope_fit.get_val(online_ref, 'error'))
@@ -1074,6 +1171,7 @@ class MRToFIsotope(MRToFUtils):
     def calc_mass(self, file_isotope='', file_ref1='', file_ref2='',
                         t_isotope='', t_ref1='', t_ref2='',
                         t_isotope_err='', t_ref1_err='', t_ref2_err='',
+                        q = 1, q1 = 1, q2 = 2,
                         centroid = 'mu0', online_ref = '', online_ref2 = '',
                         tweak_tofs = [0,0,0],
                         print_results = False):
@@ -1082,6 +1180,7 @@ class MRToFIsotope(MRToFUtils):
         or in form of time-of-flights
             - file_isotope, file_ref1, file_ref2: path to fit files to be used
             - t_isotope, t_ref1, t_ref2: time-of-flights to be used. Overwrites the ToFs fetched from fit files
+            - q, q1, q2: charge states of mass of interest and of the two reference masses. Default to 1
             - centroid: time-of-flight centroid to be used to calculate mass ['mu0', 'numerical_mean']
             - tweak_tofs: array [tof_isotope, tof_ref1, tof_ref2] that add tof to the extracted values from the fit files to tweak the mass and see influence of tof drifts
             - online_ref and online_ref2: centroid of online references 1 and 2
@@ -1089,17 +1188,17 @@ class MRToFIsotope(MRToFUtils):
         '''
         # Store ToFs
         self.__store_tofs(file_isotope, file_ref1, file_ref2,t_isotope, t_ref1, t_ref2, t_isotope_err, 
-                            t_ref1_err, t_ref2_err, centroid, online_ref, online_ref2, tweak_tofs)
+                            t_ref1_err,  t_ref2_err, q, q1, q2, centroid, online_ref, online_ref2, tweak_tofs)
         #
         self.C_tof = self.calc_C_ToF(self.isotope_gs_t, self.ref1_t, self.ref2_t)
         self.C_tof_err = self.calc_C_ToF_err(t=self.isotope_gs_t, t_err=self.isotope_gs_t_err,
                                                        t1=self.ref1_t, t1_err=self.ref1_t_err,
                                                        t2=self.ref2_t, t2_err=self.ref2_t_err)
         #
-        self.m_isotope = self.calc_sqrt_m(self.C_tof, self.m_ref1, self.m_ref2)**2
+        self.m_isotope = self.calc_sqrt_m(self.C_tof, self.m_ref1, self.m_ref2)**2 * self.q 
         self.m_isotope_err = self.calc_m_err(self.C_tof, self.C_tof_err, 
                                                self.m_ref1, self.m_ref1_err/self.u ,
-                                               self.m_ref2, self.m_ref2_err/self.u)
+                                               self.m_ref2, self.m_ref2_err/self.u) * self.q
 
         self.me_isotope = (self.m_isotope-self.A) * self.u # [keV]
         self.me_isotope_err = self.m_isotope_err * self.u # [keV]
@@ -1255,11 +1354,309 @@ class MRToFIsotope(MRToFUtils):
             else:
                 print(f"Appending to '{results_file}'...\n")
                 df2 = pd.DataFrame.from_dict(data=d) 
-                df = df.append(df2, ignore_index=True)
+                # df = df.append(df2, ignore_index=True) # deprecated in pandas >=2.0
+                df = pd.concat([df, df2], ignore_index=True)
         #
         df.to_csv(results_file, index=False)
 
-class Peaks:
+class TOFPlot():
+    """
+    Handling all MR-ToF MS related ToF Histograms. Takes data and matplotlib figure/axis.
+    :file:
+    :fig:
+    :ax:
+    """
+    def __init__(self, file):
+        self.file = file # dataframe with tof and sweeps
+        self.vlines = []
+        self.vlines_text = []
+        # Turn off interactive plotting to only show plot when called for
+        # plt.ioff()
+        # initialize plot
+        # self.fig, self.ax = plt.subplots(nrows=1, ncols=1, figsize=(8.6,6))
+        self.colors = custom_colors()
+        # plt.close() # close window if created, not needed yet
+        # plt.ion()
+
+    def load_utils(self, utils):
+        """
+        Load an external instance of MRToFUtils
+        """
+        self.utils = utils
+
+    def get_binning(self, bins=1, df = None):
+        """
+        Adapts binning to multiples of 0.8ns, assuming that 0.8ns was used to take data (to common case)
+        """
+        # Get min and max tof from data frame
+        if df is not None:
+            minn = df.tof.min()
+            maxx = df.tof.max()
+        else:
+            minn = self.file.tof.min()
+            maxx = self.file.tof.max()
+        # Avoid having empty binning when maxx is equal to minn
+        if minn == maxx:
+            maxx += 1
+        #
+        return round((maxx-minn)/0.8/bins)
+
+    def create_hist1d(self, df=None, 
+            bins = 10, log=False, data = 'tof',
+            fs_labels = 25, fs_ticks = 20, figsize = (8.6,6), xlim = None, ylim = None, tof_offset=0,
+            style = 'errorbar', add_vlines = [], legend=False, orientation='vertical',
+            histalpha = 0.5, histlw = 2, fitzorder = 2, histzorder = 1,
+            external = False, fig = None, ax = None,
+        ):
+        '''
+        Takes figure and axis and fills with 1D Histogram
+        Parameters:
+        - bins: Number of bins to be rebinned. Default=10
+        - focus: if True, sets xlimits to first and last found peak
+        - log: if Ture, sets logscale on y-axis
+        - data: 'tof' for tof histogram, 'sweep' for count rate projection, 'count' for count rate histogram
+        - orientation: orientation of histogram
+        - silent: if True, shows plot on canvas
+        - save: if True, uses path_to_file to save plot as .pdf
+        - path_to_file: path to save .pdf in
+        - add_vlines: array of tof values where vlines should be added
+        '''
+        # Select data source
+        if df is not None:
+            tof = df.tof - tof_offset
+            sweep = df.sweep
+            x_binning = self.get_binning(bins, df)
+            filetype = 'mpa' if 'counts' in df.columns else 'lst'
+        else:
+            tof = self.file.tof - tof_offset
+            sweep = self.file.sweep
+            x_binning = self.get_binning(bins)
+            filetype = 'mpa' if 'counts' in self.file.columns else 'lst'
+        # 
+        if df is not None:
+            counts = None if filetype=='lst' else df.counts
+        else:
+            counts = None if filetype=='lst' else self.file.counts
+        #
+        if not external:
+            fig, ax = plt.subplots(nrows=1, ncols=1, figsize=figsize)
+        # if external:
+        #     self.fig, self.ax = fig, ax
+
+        #
+        # Select data source
+        # .mpa files are pre-binned, meaning they have a weight per ToF bin
+        # .lst files are not pre-binned, each evenet is saved in an individual line
+        # need to descriminate against this 
+        if filetype == 'mpa': # condition for .mpa
+            if data == 'tof':
+                xdata = tof
+                bins = x_binning
+                weights = counts
+                n, xe = np.histogram(tof, bins=bins, weights = weights)
+            if data == 'sweep':
+                xdata = sweep
+                weights = counts
+                bins = sweep.max()+1
+                n, xe = np.histogram(xdata, bins=int(bins), weights = weights)
+            if data == 'counts':
+                xdata = counts
+                weights = None
+                bins = sweep.max()+1
+                n, xe = np.histogram(xdata, bins=int(bins))
+            #    
+        if filetype == 'lst': # condition for .lst
+            weights=None
+            if data == 'tof':
+                xdata = tof
+                bins = x_binning
+                n, xe = np.histogram(xdata, bins=bins)
+            if data == 'sweep':
+                xdata = sweep
+                bins = int((sweep.max()+1) / bins)  
+                n, xe = np.histogram(sweep, bins=int(bins))
+            if data == 'counts':
+                xdata = sweep
+                bins = int((sweep.max()+1) / bins)   
+                n, xe = np.histogram(sweep, bins=int(bins))
+
+        # Plot data
+        if style == 'errorbar':
+            #
+            cx = 0.5 * (xe[1:] + xe[:-1])
+            dx = np.diff(xe)
+            # use sqrt(n) as error, if n==1 use smaller error to avoid having inifite long error bars in log-scale
+            ax.errorbar(cx, n, [val ** 0.5 if val != 1 else 0.75 for val in n] ,
+                    ecolor='black', elinewidth=1,  
+                    fmt="ok", zorder=1, label=f"Data (bins={bins})")
+            # self.ax.plot(xdata, np.zeros_like(xdata)-5, "|", alpha=0.1, label = "ToF Data", zorder = 3)
+        
+        elif style == 'hist':
+            ax.hist(xdata, bins=int(bins), weights = weights,
+                 color='grey', edgecolor='black', linewidth=histlw,  
+                alpha = histalpha, histtype='stepfilled', label=f"Data (bins={bins})",
+                zorder= histzorder, orientation=orientation
+                )
+
+        if log:
+            ax.set_yscale('log')
+        
+        
+        if legend:
+            plt.legend()
+
+        # add vlines
+        for vline in add_vlines:
+            ax.axvline(vline, c='b', linewidth=1, zorder=3, ls = '--')
+
+        
+        if xlim is not None:
+            ax.set_xlim(xlim[0], xlim[1])
+        if ylim is not None:
+            ax.set_ylim(ylim[0], ylim[1])
+        
+        # Add axis labels
+        # self.ax.set_xlabel(f'Time-of-Flight (ns)', fontsize=fs_labels)
+        # self.ax.set_ylabel(f'Counts per bin', fontsize=fs_labels)
+
+        # # Set ticks size 
+        ax.tick_params(axis='both', which='major', labelsize=fs_ticks)
+
+        # return self.fig, self.ax
+
+        if not external:
+            self.fig = fig
+            self.ax = ax
+
+    def create_hist2d(self, df=None, 
+            x_bins=1, y_bins=1, log=False,
+            fs_labels = 25, fs_ticks = 20, figsize = (8.6,6), xlim = None, ylim = None,
+            add_vlines = [], colorbar = False, tof_offset = 0,
+            external = False, fig = None, ax = None,):
+        """
+        Takes figure and axis and fills with 2D Histogram
+        Parameters:
+        - df: data to be plotted. if not takes self.file
+        - colobar: print colobar
+        """ 
+        # Select data source
+        if df is not None:
+            xdata = df.tof
+            ydata = df.sweep
+            x_binning = self.get_binning(x_bins, df)
+            filetype = 'mpa' if 'counts' in df.columns else 'lst'
+        else:
+            xdata = self.file.tof
+            ydata = self.file.sweep
+            x_binning = self.get_binning(x_bins)
+            filetype = 'mpa' if 'counts' in self.file.columns else 'lst'
+        #
+        if not external:
+            fig, ax = plt.subplots(nrows=1, ncols=1, figsize=figsize)
+        # 
+        # .mpa files are pre-binned, meaning they have a weight per ToF bin
+        # .lst files are not pre-binned, each evenet is saved in an individual line
+        # need to descriminate against this 
+        if filetype == 'mpa':
+            weights = self.file.counts
+            sweep_bins = int(self.file.sweep.max()+1) # take the original binning from the .mpa file
+        if filetype == 'lst':
+            weights = None
+            sweep_bins = int((self.file.sweep.max()+1) / y_bins) # rebin for plotting 
+        #
+        cplt = ax.hist2d(xdata-tof_offset, ydata, weights=weights, 
+                         bins = [x_binning,sweep_bins], cmap=self.colors['best.col2d'],
+                         # vmin = 0, vmax = 100,
+                         ) 
+        if colorbar:
+            fig.colorbar(cplt[3], ax=ax)
+
+        # Plot configuration
+        if log:
+            ax.set_yscale('log')
+        #
+        
+        # add vlines
+        for vline in add_vlines:
+            ax.axvline(vline, c='b', linewidth=1, zorder=3, ls = '--')
+
+        # 
+        if xlim is not None:
+            ax.set_xlim(xlim[0], xlim[1])
+        if ylim is not None:
+            ax.set_ylim(ylim[0], ylim[1])
+        
+        # Add axis labels
+        ax.set_xlabel(f'Time-of-Flight (ns)', fontsize=fs_labels)
+        ax.set_ylabel(f'Rolling sweep number', fontsize=fs_labels)
+
+        # Set ticks size 
+        ax.tick_params(axis='both', which='major', labelsize=fs_ticks)
+
+        # if external:
+        #     return fig,ax,cplt
+        if not external:
+            self.fig = fig
+            self.ax = ax
+
+    def add_isobar_line(self, vline, text,
+                        external = False, fig = None, ax = None,):
+        """
+        Add vline to axis
+        """
+        # 
+        if external:
+            fig, ax = fig, ax 
+        else:
+            fig, ax = self.fig, self.ax
+        #
+        ax.axvline(vline, c='black', linewidth=1, zorder=1, ls = '--')
+        ax.text(vline, 0.9, text, rotation=90, bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'), 
+            transform =ax.get_xaxis_transform(),
+            horizontalalignment='center',
+            verticalalignment='center',
+            fontsize=8,
+        )
+
+    def add_isobars(self, nrevs, A=None, iso_list=None):
+        """
+        Add vlines with calculated isobars to the plot
+        """
+        if iso_list is not None:
+            for isobar in iso_list:
+                # Check for isomeric state
+                if len(isobar.split("-"))>1:
+                    state = isobar.split("-")[1]
+                    vline = self.utils.calc_ToF(self.utils.get_value(isobar.split("-")[0], value='mass')+self.utils.get_value(isobar.split("-")[0], value='excitation_energy', state=state)/self.utils.u, nrevs)*1e3
+                else:
+                    vline = self.utils.calc_ToF(self.utils.get_value(isobar, value='mass'), nrevs)*1e3
+                self.vlines_text.append(isobar)
+                self.vlines.append(vline)
+                # self.__add_isobar_line(vline, isobar)
+            return
+
+        if A is not None:
+            for idx,row in self.utils.ame[self.utils.ame.A==A].iterrows():
+                vline = self.utils.calc_ToF(self.utils.get_value(f'{A}{row["element"]}', value='mass', state='gs'), nrevs)*1e3
+                self.vlines.append(vline)
+                self.vlines_text.append(f'{A}{row["element"]}')
+                # self.__add_isobar_line(vline, f'{A}{row["element"]}')
+            return
+
+    def add_clusters(self, isotope, nrange, nrevs):
+        """
+        Add vlines for calculated cluster sizes
+        """
+        for n in nrange:
+            #
+            mass = n * self.utils.get_value(isotope, value='mass', state='gs')
+            vline = self.utils.calc_ToF(mass, nrevs)*1e3
+            self.vlines.append(vline)
+            self.vlines_text.append(f'n={n}')
+            # self.__add_isobar_line(vline, f'n={n}')
+        return
+
+class Peaks(TOFPlot):
     """ 
     Wrapper class for finding peaks in an MR-ToF MS spectrum
         dataframe containing the converted .lst content
@@ -1275,20 +1672,9 @@ class Peaks:
         self.peak_width_inbins = (3,100)
         self.peak_prominence = None
         self.peak_wlen = None
-
-    def get_binning(self, bins=10):
-        """
-        Adapts binning to multiples of 0.8ns, assuming that 0.8ns was used to take data (to common case)
-        """
-        # Get min and max tof from data frame
-        minn = self.file.tof.min()
-        maxx = self.file.tof.max()
-        # Avoid having empty binning when maxx is equal to minn
-        if minn == maxx:
-            maxx += 1
         #
-        return round((maxx-minn)/0.8/bins)
-    
+        TOFPlot.__init__(self, df_file)
+
     def find_peaks(self, bins=10, peak_threshold = None, peak_min_distance = None, peak_min_height = None, peak_width_inbins = None, 
                    peak_prominence = None, peak_wlen = None):
         """  
@@ -1358,8 +1744,9 @@ class Peaks:
                 self.latest_peak_idx = i 
                 
     def plot(self, bins = 10, lines = True, focus=False, log=False, silent = False, 
-            fs_labels = 25, fs_ticks = 20, figsize = (6,4), ylim = (),
-            save = False, path_to_file = "peaks", style = 'errorbar', add_vlines = [],
+            fs_labels = 25, fs_ticks = 20, figsize = (8.6,6), xlim = None, ylim = None, legend = False,
+            save = False, path_to_file = "peaks", style = 'hist', add_vlines = [],
+            histalpha = 0.5, histlw = 2, fitzorder = 2, histzorder = 1,
             external = False, fig = None, ax = None):
         '''
         Plot 1D Histogram with found peaks.
@@ -1371,84 +1758,80 @@ class Peaks:
         - silent: if True, shows plot on canvas
         - save: if True, uses path_to_file to save plot as .pdf
         - path_to_file: path to save .pdf in
-        - add_vlines: array of tof values where vlines should be added
+        - add_vlines: array of tof values where
+         vlines should be added
         '''
-        #
-        # if not external plotting
-        if not external:
-            plt.rcParams["figure.figsize"] = figsize
-            fig, ax = plt.subplots(nrows=1, ncols=1, figsize=figsize)
         #
         if self.n_peaks == 0:
             print("Not peaks, no plots :)")
             return 0 
-        #            
-        xdata = self.file.tof
-        n, xe = np.histogram(xdata, bins=self.get_binning(bins))
-        cx = 0.5 * (xe[1:] + xe[:-1])
-        dx = np.diff(xe)
-
-        # Plot data
-        if style == 'errorbar':
-            # use sqrt(n) as error, if n==1 use smaller error to avoid having inifite long error bars in log-scale
-            ax.errorbar(cx, n, [val ** 0.5 if val != 1 else 0.75 for val in n] ,
-                    ecolor='black', elinewidth=1,  
-                    fmt="ok", zorder=1, label=f"Data (bins={bins})")
-            # ax.plot(xdata, np.zeros_like(xdata)-5, "|", alpha=0.1, label = "ToF Data", zorder = 3)
-            
-        elif style == 'hist':
-            ax.hist((xdata), bins=self.get_binning(bins=bins), color='grey', edgecolor='black', linewidth=0.1, label=f"Data (bins={bins})")
-
-
-        # plt.errorbar(cx, n, n ** 0.5, fmt="ok", zorder=1)
-        #
-        if log:
-            ax.set_yscale('log')
-        #
+        # Create plot
+        self.create_hist1d(style=style,bins=bins, log=log,
+                            fs_labels = fs_labels, fs_ticks = fs_ticks, figsize = figsize, ylim = ylim,
+                            external = external, fig=fig, ax=ax,
+                            histalpha = histalpha, histlw = histlw, fitzorder = fitzorder, histzorder = histzorder,
+                            # add_vlines = add_vlines,
+        )
         if lines:
             for i in range(self.n_peaks):
-                ax.axvline(self.pos[i], c='r', linewidth=1, zorder=3)
-        
-        xm = np.linspace(xe[0], xe[-1], num=1000)
-        plt.legend();
-        # plt.xlim(peaks.pos[0]-300, peaks.pos[0]+300)
-
-        # add vlines
-        for vline in add_vlines:
-            ax.axvline(vline, c='b', linewidth=1, zorder=3, ls = '--')
-
-        
+                self.ax.axvline(self.pos[i], c='r', linewidth=1, zorder=3)
+                
         # Zoom in on found peaks
         if focus:
-            ax.set_xlim(self.earliest_left_base-200, self.latest_right_base+200)
+            self.ax.set_xlim(self.earliest_left_base-200, self.latest_right_base+200)
 
         # 
-        if len(ylim) != 0:
-            ax.set_ylim(ylim[0], ylim[1])
+        if xlim is not None:
+            self.ax.set_xlim(self.pos[0]+xlim[0], self.pos[0]+xlim[1])
+        # 
+        if ylim is not None:
+            self.ax.set_ylim(ylim[0], ylim[1])
         
+        # Rewrite ticks based on first ToF peak found
+        originial_xticks = self.ax.get_xticks()
+        xticks = [tick+self.pos[0] for tick in originial_xticks-self.pos[0] + abs(originial_xticks-self.pos[0]).min()]
+        self.ax.set_xticks(xticks)
+        self.ax.set_xticklabels(labels=[f'{tick:.1f}' for tick in xticks-self.pos[0]])
+
         # Add axis labels
-        ax.set_xlabel(f'Time-of-Flight [ns]', fontsize=fs_labels)
-        ax.set_ylabel(f'Counts per bin', fontsize=fs_labels)
+        self.ax.set_xlabel(f'Time-of-Flight (ns) + {self.pos[0]:.1f}ns', fontsize=fs_labels)
+        self.ax.set_ylabel(f'Counts per bin', fontsize=fs_labels)
 
         # Set ticks size 
-        ax.tick_params(axis='both', which='major', labelsize=fs_ticks)
+        self.ax.tick_params(axis='both', which='major', labelsize=fs_ticks)
+
+        self.fig.set_size_inches(figsize)
+
+        # Check if there are lines passed and plot them
+        if len(self.vlines) != 0:
+            #
+            for vline,text in zip(self.vlines, self.vlines_text):
+                self.add_isobar_line(vline,text)
+            # Rescale y axis
+            ylims = self.ax.get_ylim()
+            self.ax.set_ylim(ylims[0], ylims[1]*5)
+
 
         if not external:
             plt.tight_layout()
 
-        if not silent: 
+        # Show plot on canvas
+        if not silent:
             plt.show()
-            # plt.clf()
+
+        # Clear canvas to avoid printing on top of other plot in batch mode
+        if silent:
+            plt.clf()
 
         # return axis if external plotting is uesd
         if external:
-            return fig, ax
+            return self.fig, self.ax
         #
         if save:
-            plt.savefig(path_to_file+".pdf", dpi=300)
-            plt.clf()
-        
-    def plot2d(self, bins=500, y_bins=1, focus=-1, log=False):
+            plt.savefig(path_to_file, dpi=300)
+            # plt.clf()
+   
+    def plot2d(self, x_bins=20, hist2d_y_bins = 100, y_bins=10, focus=-1, log=False, figsize=(12,7)):
         """
         Plot 2D Histogram with found peaks.
         """
@@ -1457,48 +1840,88 @@ class Peaks:
         sweep = self.file.sweep
 
         # Create plot canvas
-        fig, ((ax_x, ax_y_hist),(ax_0, ax_y)) = plt.subplots(2,2,sharex='col',sharey='row', figsize=(9,9),
-                                                 gridspec_kw={'height_ratios':[1,4],
-                                                             'width_ratios':[4,1],
-                                                             'hspace': 0.05,
-                                                             'wspace':0.05})
+        # fig, ((ax_x, ax_y_hist),(ax_0, ax_y)) = plt.subplots(2,2,sharex=,sharey='row', figsize=(9,9),
+        #                                          gridspec_kw={'height_ratios':[1,4],
+        #                                                      'width_ratios':[4,1],
+        #                                                      'hspace': 0.05,
+        #                                                      'wspace':0.05})
+        fig = plt.figure(constrained_layout=True, figsize=figsize)
+        widths = [3, 1]
+        heights = [1, 2]
+        spec = fig.add_gridspec(ncols=2, nrows=2, width_ratios=widths,
+                                  height_ratios=heights, wspace=0.0, hspace=0.0)
 
-        # faster binning for projections than histograms -> necessary in order to automatically find peaks
-        x_proj = self.file.tof.value_counts(bins=self.get_binning(bins)).sort_index()
-        y_proj = self.file.sweep.value_counts().sort_index()
-        # y_proj = self.file.sweep.value_counts(bins=500).sort_index()
+        ax_0=fig.add_subplot(spec[1,0])
+        ax_x=fig.add_subplot(spec[0,0], sharex=ax_0)
+        ax_y=fig.add_subplot(spec[1,1], sharey=ax_0)
+        ax_y_hist=fig.add_subplot(spec[0,1])
 
-        # main plotting
-        self.file.plot(x='tof', y='sweep', style='o', alpha=0.15, ms=2, ax=ax_0, label='unbinned data')
-        ax_x.semilogy(x_proj.index.mid.to_numpy(), x_proj.to_numpy())
-        # ax_y.plot(y_proj.to_numpy(), y_proj.index.mid.to_numpy())
-        ax_y.plot(y_proj.to_numpy(), y_proj.index.to_numpy())
 
-        # plt.plot(tof, sweep, 'o', alpha=0.15, ms=2, label='unbinned data')
+        # Bottom left: MCS6-like 2d histogram
+        self.create_hist2d(external=True, ax=ax_0, fig=fig, x_bins=1, y_bins=hist2d_y_bins)
+
+        # Top left: x-projection
+        self.create_hist1d(external=True, ax=ax_x, fig=fig, style='hist', bins=x_bins, data='tof', log=log)
+
+        # Check if there are lines passed and plot them
+        if len(self.vlines) != 0:
+            #
+            for vline,text in zip(self.vlines, self.vlines_text):
+                self.add_isobar_line(vline,text, external=True, fig=fig, ax=ax_x)
+            # Rescale y axis
+            ylims = ax_x.get_ylim()
+            ax_x.set_ylim(ylims[0], ylims[1]*5)
+
+        
+        # Bottom right: y-projection
+        self.create_hist1d(external=True, ax=ax_y, fig=fig, style='hist', bins=y_bins, 
+                           data='sweep',orientation="horizontal", histlw = 1,
+                           )
+        # Top right: count rate histogram
+        bar_x = self.file.sweep.value_counts().value_counts().sort_index().index
+        bar_y = self.file.sweep.value_counts().value_counts().sort_index()
+        ax_y_hist.bar(bar_x, bar_y, color='gray', edgecolor='black', linewidth=1)
+        # self.create_hist1d(external=True, ax=ax_y_hist, fig=fig, style='hist', bins=y_bins, histlw = 1,
+        #            data='counts',
+        #            )
+
         for i in range(self.n_peaks):
             ax_0.axvline(self.pos[i], c='r', linewidth=1, zorder=3)
             ax_x.axvline(self.pos[i], c='r', linewidth=1, zorder=3)
-        if focus != -1:
-            plt.xlim(self.pos[focus]-300, self.pos[focus]+300)
+        
+        # Zoom in on found peaks
+        if focus:
+            ax_0.set_xlim(self.earliest_left_base-600, self.latest_right_base+600)
 
-        # Counts histogram
-        bar_x = self.file.sweep.value_counts().value_counts().sort_index().index
-        bar_y = self.file.sweep.value_counts().value_counts().sort_index()
-        ax_y_hist.bar(bar_x, bar_y)
-        # ax_y_hist.set_yscale("linear")
 
-        #
+        # #
         ax_0.set_xlabel(f'Time-of-Flight [ns]', fontsize=20)
         ax_0.set_ylabel(f'Rolling sweep number', fontsize=20)
-        ax_x.set_ylabel('# / 0.8 ns', fontsize=20)
-        ax_y.set_xlabel('# / 10 sw.', fontsize=20)
-        ax_y.xaxis.set_ticks_position('top')
-        ax_y.xaxis.set_label_position('top')
-        ax_y.set_xlim(0,20)
+
+        ax_x.set_ylabel(f'Counts per {0.8*x_bins:.1f}ns bin', fontsize=20)
+        ax_x.set_xlabel(f'Time-of-Flight [ns]', fontsize=20)
+        ax_x.xaxis.set_ticks_position('top')
+        ax_x.xaxis.set_label_position('top')
+        ax_x.yaxis.set_ticks_position('left')
+
+
+        ax_y.set_xlabel(f'Counts per {y_bins} sweep', fontsize=20)
+        ax_y.set_ylabel(f'Rolling sweep number', fontsize=20)
+        ax_y.xaxis.set_ticks_position('bottom')
+        ax_y.xaxis.set_label_position('bottom')
+        ax_y.yaxis.set_label_position('right')
+        ax_y.yaxis.set_ticks_position('right')
+
+        ax_y_hist.set_xlabel('counts multiplicity', fontsize=16)
+        ax_y_hist.xaxis.set_ticks_position('top')
+        ax_y_hist.xaxis.set_label_position('top')
+        ax_y_hist.yaxis.set_ticks_position('right')
+
+
         #
         plt.show()
 
-class softCool(Peaks, ProcessorBase):
+class softCool(Peaks, ProcessorBase, TOFPlot):
     """
     Class for performing software cooling on 2D MR-ToF MS Data
         df_file: dataframe containing the converted .lst content 
@@ -1526,6 +1949,7 @@ class softCool(Peaks, ProcessorBase):
             # Read data
             for f in self.files:
                 self.df_dict[f] = pd.read_csv(f)
+
         if files == '' and isinstance(df, pd.DataFrame):
             # Read data
             self.df_dict['df'] = df
@@ -1538,14 +1962,35 @@ class softCool(Peaks, ProcessorBase):
         self.tof_cut_right = 0
         self.weighted_average_tof = 0
         self.verbose = 0
+        #
+        # fill master dataframe
+        df_dict_deepcopy = {}
+        for key in self.df_dict.keys():
+            df_dict_deepcopy[key] = self.df_dict[key].copy(deep=True)
+        # Adjust the sweep numbers
+        for i in np.arange(0, len(df_dict_deepcopy)):
+            if i == 0: 
+                continue
+            key = list(df_dict_deepcopy.keys())[i]
+            # print(key)
+            key_m1 = list(df_dict_deepcopy.keys())[i-1]
+            # print(key_m1, df_dict_deepcopy[key_m1].iloc[-1]['sweep'])
+            df_dict_deepcopy[key]['sweep'] += df_dict_deepcopy[key_m1].iloc[-1]['sweep'] + 1
+        #
+        df_file = pd.concat(df_dict_deepcopy, ignore_index=True)
+        TOFPlot.__init__(self, df_file)
+        #
 
     def __prepare_files(self, tof, tof_cut_left=300, tof_cut_right=300, initial_align = True):
         """
         
         """
         #
+        self.tof = tof
+        self.tof_cut_left = tof_cut_left
+        self.tof_cut_right = tof_cut_right
         if initial_align:
-            self.__initial_align(tof, tof_cut_left, tof_cut_right)
+            self.__initial_align()
             # 
         # Sum all files
         if self.file_passed:
@@ -1553,21 +1998,19 @@ class softCool(Peaks, ProcessorBase):
         else:
             self.file = self.df_dict['df']
         #
-        self.coolfile = self.file.copy(deep=True) # copy for storing the cooled spectrum
+        if not self.post_cool:
+            self.coolfile = self.file.copy(deep=True) # copy for storing the cooled spectrum
         # Drop empty sweeps
         for idx in self.coolfile[self.coolfile.tof.isnull()].index:
             self.coolfile = self.coolfile.drop(idx)
 
-    def __initial_align(self, tof, tof_cut_left=300, tof_cut_right=300):
+    def __initial_align(self):
         """
         Aligns all input files to a weighted average ToF. Onl 
         Parameters:
             - file_list: array of files to be aligned with respect to each other
         """
         #
-        self.tof = tof
-        self.tof_cut_left = tof_cut_left
-        self.tof_cut_right = tof_cut_right
         weights = []
         averages = []
         weighted_average_tof = 0
@@ -1647,7 +2090,7 @@ class softCool(Peaks, ProcessorBase):
         if method=="mean" or "moving-average":
             self.corr_factors = [
                 # Take mean of slice through sweeps with tof cut 
-                np.mean(sublist.tof) 
+                np.median(sublist.tof) 
                 if len(sublist.tof) != 0
                 else 
                 0 
@@ -1718,16 +2161,16 @@ class softCool(Peaks, ProcessorBase):
         Return:
             - Dataframe with cooled ToF
         """
-        #
+        #    
         self.verbose = verbose
         # Prepare files for cooling
         self.__prepare_files(tof, tof_cut_left=tof_cut_left, tof_cut_right=tof_cut_right, initial_align=initial_align)
         # df to be cooled
         self.post_cool = post_cool
-        if not self.post_cool:
-            df_to_cool = self.file
-        else:
+        if self.post_cool:
             df_to_cool = self.coolfile
+        else:
+            df_to_cool = self.file
         #
         self.chunk_size = chunk_size
         tof_cut = [tof-tof_cut_left, tof+tof_cut_right]
@@ -1791,7 +2234,8 @@ class softCool(Peaks, ProcessorBase):
         # Export the cooled df
         return self.coolfile
         
-    def plot2d(self, bins=500, focus=False, log=False, alpha=0.1, lw = 2):
+    def plot2d(self, x_bins = 10, y_bins=1, focus=False, log=False, alpha=0.25, lw = 2, 
+               figsize=(15,7), xlims=None, savefig=None):
         """
         Plot the 2d histograms to compare the corrected and not corrected values
         Parameters:
@@ -1801,42 +2245,100 @@ class softCool(Peaks, ProcessorBase):
             - alpha: alpha for scatter plot
             - linewidth for vertical markers
         """
-        fig, (ax0, ax1) = plt.subplots(1,2,sharey='row', sharex=True, figsize=(7,7))
+        # fig, (ax0, ax1) = plt.subplots(1,2,sharey='row', sharex=True, figsize=figsize)
+
+        fig = plt.figure(constrained_layout=True, figsize=figsize)
+        widths = [1, 1]
+        heights = [1, 3]
+        spec = fig.add_gridspec(ncols=2, nrows=2, width_ratios=widths,
+                                  height_ratios=heights, wspace=0.0, hspace=0.0)
+
+        left_hist=fig.add_subplot(spec[0,0])
+        left_tof=fig.add_subplot(spec[1,0], sharex=left_hist)
+        right_hist=fig.add_subplot(spec[0,1], sharex=left_hist)
+        right_tof=fig.add_subplot(spec[1,1], sharex=left_hist)
+
+
+
         tof = self.file.tof
         sweep = self.file.sweep
         # Plot unbinned and un-corrected data
-        ax0.plot(tof, sweep, 'o', alpha=alpha, ms=2, label='unbinned data')
+        # ax0.plot(tof-self.tof, sweep, 'o', alpha=alpha, ms=2, label='unbinned data')
+        self.create_hist2d(external=True, ax=left_tof, df = self.file, fig=fig, x_bins=1, y_bins=y_bins, tof_offset=self.tof)
+
+        self.create_hist1d(external=True, ax=left_hist, df = self.file, fig=fig, style='hist', 
+            bins=x_bins, data='tof', log=log, tof_offset=self.tof)
+
         # Plot correction factors
         y_corr = range(int(self.coolfile.sweep.iloc[0]),int(self.coolfile.sweep.iloc[0])+len(self.corr_factors)*self.chunk_size, self.chunk_size)
         x_corr = self.corr_factors
-        ax0.plot(x_corr, y_corr, c='r', linewidth=lw, zorder=3)
+        left_tof.plot(x_corr-self.tof, y_corr, c='r', linewidth=lw, zorder=3)
+       
+
         # Plot corrected data
         tof = self.coolfile.tof
         sweep = self.coolfile.sweep
-        ax1.plot(tof, sweep, 'o', alpha=alpha, ms=2, label='unbinned data')
+        self.create_hist2d(external=True, ax=right_tof, df=self.coolfile, fig=fig, x_bins=1, y_bins=y_bins, tof_offset=self.tof)                
+        
+        self.create_hist1d(external=True, ax=right_hist, df=self.coolfile, fig=fig, style='hist', 
+            bins=x_bins, data='tof', log=log, tof_offset=self.tof)
+
+        # ax1.plot(tof-self.tof, sweep, 'o', alpha=alpha, ms=2, label='unbinned data')
+        
         if self.post_cool:
             y_corr = range(int(self.coolfile.sweep.iloc[0]),int(self.coolfile.sweep.iloc[0])+len(self.corr_factors)*self.chunk_size, self.chunk_size)
             x_corr = self.corr_factors
-            ax1.plot(x_corr, y_corr, c='r', linewidth=lw, zorder=3)
+            right_tof.plot(x_corr, y_corr, c='r', linewidth=lw, zorder=3)
         #
         # for i in range(self.n_peaks):
         #     plt.axvline(self.pos[i], c='r', linewidth=lw, zorder=3)
 
+
+        # Plot file limits
+        current_max_sweep = 0
+        for key in self.df_dict:
+            current_max_sweep += self.df_dict[key].sweep.max()
+            left_tof.axhline(current_max_sweep, c='grey', linewidth=1, zorder=1, ls='--')
+            right_tof.axhline(current_max_sweep, c='grey', linewidth=1, zorder=1, ls='--')
+
+
+
         # Plot ToF to align around
-        ax0.axvline(self.tof, c='b', linewidth=lw, zorder=3, ls='-')
-        ax0.axvline(self.tof - self.tof_cut_left, c='b', linewidth=lw, zorder=3, ls='--')
-        ax0.axvline(self.tof + self.tof_cut_right, c='b', linewidth=lw, zorder=3, ls='--')
+        left_tof.axvline(0, c='b', linewidth=lw, zorder=2, ls='-')
+        left_tof.axvline( - self.tof_cut_left, c='b', linewidth=lw, zorder=2, ls='--')
+        left_tof.axvline( + self.tof_cut_right, c='b', linewidth=lw, zorder=2, ls='--')
 
-        ax1.axvline(self.tof, c='b', linewidth=lw, zorder=3, ls='-')
+        right_tof.axvline(0, c='b', linewidth=lw, zorder=2, ls='-')
 
-        plt.xlabel("Time-of-Flight [ns]")
-        plt.ylabel("Rolling sweep number")
+        left_tof.set_xlabel(f"Time-of-Flight (ns) - {self.tof:.1f}ns")
+        right_tof.set_xlabel(f"Time-of-Flight (ns) - {self.tof:.1f}ns")
+        left_tof.set_ylabel("Rolling sweep number")
+        right_tof.set_ylabel("")
 
-        if not focus:
-            ax0.set_xlim(self.tof-1500, self.tof+1500)
-            ax1.set_xlim(self.tof-1500, self.tof+1500)
+        right_tof.yaxis.set_ticks_position('right')
+        right_hist.yaxis.set_ticks_position('right')
+        right_hist.xaxis.set_ticks_position('top')
+        left_hist.xaxis.set_ticks_position('top')
 
+
+        if focus:
+            left_tof.set_xlim(-2*self.tof_cut_left, +2*self.tof_cut_right)
+            right_tof.set_xlim(-2*self.tof_cut_left, +2*self.tof_cut_right)        
+        else:
+            left_tof.set_xlim(-5000, +5000)
+            right_tof.set_xlim(-5000, +5000)
+
+        if xlims is not None:
+            left_tof.set_xlim(xlims[0], xlims[1])
+            right_tof.set_xlim(xlims[0], xlims[1])
+
+        # plt.subplots_adjust(hspace=0.0)
         plt.tight_layout()
+
+        if savefig is not None:
+            plt.savefig(savefig.split(".")[0]+'.png', dpi=300)  
+            plt.savefig(savefig.split(".")[0]+'.pdf')  
+
         plt.show()
 
 class ToFExtrapolation:
@@ -2021,3 +2523,5 @@ class ToFExtrapolation:
                  ref_legend_label='ISOLTRAP21 - AME20 [keV]',
                  x_share = False,
                 )
+
+#############################

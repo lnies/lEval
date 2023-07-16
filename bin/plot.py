@@ -20,39 +20,7 @@ import math
 import time
 import mmap
 
-from utilities import FitToDict, Peaks, softCool
-
-def custom_colors():
-	# Color definition from coolors.co
-	colors = {
-		# https://coolors.co/d1495b-edae49-abe188-1a6fdf-0c0a3e
-		'Fall_rgb': {'red':'#D1495B', 'orange':'#EDAE49', 'green':'#ABE188','blue':'#1A6FDF','purple':'#0C0A3E'},
-		'Jo-s_favs': 
-		{				
-						'black': "#000000",
-						'red': "#FF2D55", 
-						'blue': "#00A2FF",
-						'orange': "#FFCC00", 
-						'green': "#61D935",
-						'lightgreen': "#a9ff8a", 
-						'grey': "#C0C0C0", 
-						'purple': "#C177DA",
-						'lightpurple': "#e8c1f5",
-						'lightblue': "#6FF1E9",
-						'lightlightblue': "#d5f7f5",
-		},
-		'indiumprl':
-		{
-			'black': "#000000",
-			'red': "#FF2D55", 
-			'blue': "#00A2FF",
-			'orange': "#FFCC00", 
-			'green': "#4DAF4A",
-			'purple': "#984EA3",
-		}
-
-	}
-	return colors
+from utilities import FitToDict
 
 def simple_error_plt(y, y_err, x='', x_labels='', \
 					 label = ["ISOLTRAP"], x_label='', y_label=[''], title='', \
@@ -264,7 +232,6 @@ def simple_fit_plot(df, fit_files, bins = 1, log=False, file_out=False, legend=T
 		if file_out != False:
 			print(f"Plot fit save as {file_out}")
 			plt.savefig(file_out, dpi=300)
-
 
 def plot_laser_on_off(df, bins = 10, n_per_laser = 100):
 	"""  

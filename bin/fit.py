@@ -26,10 +26,10 @@ import math
 import time
 import mmap
 
-ROOT.gSystem.Load('hyperEMG12_cxx.so')
-ROOT.gSystem.Load('hyperEMG12ex_cxx.so')
+# ROOT.gSystem.Load('hyperEMG12_cxx.so')
+# ROOT.gSystem.Load('hyperEMG12ex_cxx.so')
 
-from utilities import FitToDict, Peaks, softCool
+from utilities import FitToDict, Peaks, softCool, TOFPlot
 
 class FitMethods():
 	"""
@@ -76,7 +76,15 @@ class FitMethods():
 		self.fits_r = []
 		self.limits = {}
 		self.meta_data = {}
-		self.params = {}
+		self.params = {} 
+		# 
+		try:
+			if 'tof' in lst_file.columns:
+				self.xdata_unbinned = lst_file.tof # Only works if data is MR-ToF MS data
+			else:
+				self.xdata_unbinned = lst_file
+		except:
+			self.xdata_unbinned = lst_file
 		#
 		self.dimensions = [0,1] # dimensionality of fit function, e.g. number of shape parameters
 		self.n_comps = 1 # multiplicity of components for the fit function
@@ -156,8 +164,8 @@ class FitMethods():
 			for i in np.arange(len(xmin)):
 				n_in_int += len(self.lst_file.tof[(self.lst_file.tof > xmin[i]) & (self.lst_file.tof < xmax[i])])
 
-			# N = RooRealVar("N", "Extended term", n_in_int, n_in_int, n_in_int)
-			N = RooRealVar("N", "Extended term", n_in_int, n_in_int/2, n_in_int*2)
+			N = RooRealVar("N", "Extended term", n_in_int, n_in_int, n_in_int)
+			# N = RooRealVar("N", "Extended term", n_in_int, n_in_int/2, n_in_int*2)
 			# fitmodel = self.roodefs[0]
 			fitmodel = RooExtendPdf("extmodel", "Extended model", self.roodefs[0], N, ranges)
 			# fitmodel = RooExtendPdf("extmodel", "Extended model", self.roodefs[0], N, f"win_{self.roodefs[0].GetName()}_rangeFULL")
@@ -191,35 +199,53 @@ class FitMethods():
 		self.rerun = True
 		return roohist, result_mlkh
 	
-	def get_binning(self, bins=1):
+	def get_binning(self, bins=1, pre_bin_size=0.8):
 		"""
-		Adapts binning to multiples of 0.8ns, assuming that 0.8ns was used to take data (the common case)
+		Adapts binning to multiples of 0.8ns, assuming that 0.8ns (pre_bin_size) was used to take data (the common case)
 		"""
 		# Get min and max tof from data frame
 		self.bins = bins
-		minn = self.lst_file.tof.min()
-		maxx = self.lst_file.tof.max()
+		minn = self.xdata_unbinned.min()
+		maxx = self.xdata_unbinned.max()
 		# Avoid having empty binning when maxx is equal to minn
 		if minn == maxx:
 			maxx += 1
 		#
-		return round((maxx-minn)/0.8/self.bins)
+		return round((maxx-minn)/pre_bin_size/self.bins)
 
-	def lst2roothist(self, list_file, bins=1):
+	def data1d2roothist(self, data, bins=1, pre_bin_size=0.8):
+		'''
+		Converts 1d array of data into ROOT TH1D 
+		'''
+		# Safe the histogrammed data in arrays
+		self.xdata_unbinned = np.array(data)
+		# Get min and max tof from data frame
+		self.bins = bins
+		self.binning = self.get_binning(bins=self.bins, pre_bin_size=pre_bin_size)
+		minn = self.xdata_unbinned.min()
+		maxx = self.xdata_unbinned.max()
+		hist = ROOT.TH1D( 'hist', 'hist converted', self.binning, minn, maxx)
+		[hist.Fill(x) for x in self.xdata_unbinned]
+		self.y_data, self.x_data = np.histogram(self.xdata_unbinned, bins=self.binning)
+
+		return hist
+
+	def lst2roothist(self, list_file, bins=1, pre_bin_size=0.8):
 		"""
 		Converts .lst file to root histogram.
 
 		:return: root histogram
 		"""
+		# Safe the histogrammed data in arrays
+		self.xdata_unbinned = self.lst_file.tof
 		# Get min and max tof from data frame
 		self.bins = bins
+		self.binning = self.get_binning(self.bins, pre_bin_size)
 		minn = self.lst_file.tof.min()
 		maxx = self.lst_file.tof.max()
-		hist = ROOT.TH1D( 'hist', 'hist converted', self.get_binning(self.bins), minn, maxx)
+		hist = ROOT.TH1D( 'hist', 'hist converted', self.binning, minn, maxx)
 		[hist.Fill(x) for x in list_file.tof]
-		# Safe the histogrammed data in arrays
-		xdata = self.lst_file.tof
-		self.y_data, self.x_data = np.histogram(xdata, bins=self.get_binning(self.bins))
+		self.y_data, self.x_data = np.histogram(self.xdata_unbinned, bins=self.binning)
 		# Calculate counts per shot
 		self.cps = np.average(self.lst_file.sweep.value_counts()) 
 		self.cps_err = np.std(self.lst_file.sweep.value_counts())
@@ -237,12 +263,11 @@ class FitMethods():
 		self.binning = len(x)
 		self.x_data = x
 		self.y_data = y
-		minn = x[0]
-		maxx = x[-1]
+		minn = x.min()
+		maxx = x.max()
 		# create empty histogram with right binning
 		hist = ROOT.TH1D( 'hist', 'hist converted', self.bins, minn, maxx)
 		# fill histogram
-		i = 0
 		for el in y:
 			hist.SetBinContent(i, el)
 			i+=1
@@ -416,8 +441,8 @@ class FitMethods():
 			print(f"Fit file {file} has no fit values that were exported.")
 			return 0
 		#
-		xm = fitfromfile.fit['FIT-VALUES'].tof
-		y_val = fitfromfile.fit['FIT-VALUES'].fit
+		xm = np.array(fitfromfile.fit['FIT-VALUES'].tof)
+		y_val = np.array(fitfromfile.fit['FIT-VALUES'].fit)
 		self.xmin = float(fitfromfile.fit['META-DATA']['xmin'].split(",")[0].replace("[", "").replace("]", ""))
 		self.xmax = float(fitfromfile.fit['META-DATA']['xmax'].split(",")[-1].replace("]", "").replace("[", ""))
 		self.numerical_peak = float(fitfromfile.fit['META-DATA']['numerical_peak'])
@@ -437,10 +462,10 @@ class FitMethods():
 	# Plot functions
 
 	def plot(self, bins = 1, log=False, focus=-1, xrange_mod = [800,3000], from_file = False, file_out=False, contribs = False,
-		silent=True, centroids=False, components=False, carpet=False, legend=True, style='errorbar',
+		silent=False, centroids=False, components=False, carpet=False, legend=True, style='errorbar', lw_fit = 2,
 		fs_legend = 14, fs_xlabel = 20, fs_ylabel = 20, fs_ticks = 15, figsize = (6,4), add_vlines = [], 
-		prelim=False, prelimfs = 10,
-		external = False, fig = False, ax = False,
+		prelim=False, prelimfs = 10, pre_bin_size = 0.8, fitalpha = 0.5, histalpha = 0.75, histlw = 2.0, fitzorder = 2, histzorder = 1, 
+		external = False, fig = False, ax = False, 
 		):
 		"""  
 		Wrapper for plotting the fit and data
@@ -459,6 +484,8 @@ class FitMethods():
 			- add_vlnies: Array-like, adds vlines at ToF values entered throug array
 			- prelim: adds preliminary watermark
 			- prelimfs: preliminary watermark font size
+			- fitalpha: alpha of fit
+			- fitzorder, histzorder: zorders for plot
 			- external: if rountine is to be used to plot onto an external canvas. requires fig and axis to be passed. axis will be then returned
 		"""
 		# if not external plotting
@@ -471,15 +498,14 @@ class FitMethods():
 			return 0 
 		#       
 		self.bins = bins
-		xdata = self.lst_file.tof
-		n, xe = np.histogram(xdata, bins=self.get_binning(self.bins))
-		# n = n/len(xdata)
-		cx = 0.5 * (xe[1:] + xe[:-1]) 
-		dx = np.diff(xe)
 
-		# Get fit and prepare fit parameters for plotting,
-		#	- Either from the call_pdf during the same program excecution
-		# 	- or from the fit file that saves the fit
+		# If fit is to be read from file
+		if from_file:
+			# Read fit file
+			xm, y_val = self.load_fit(from_file)
+			# self.xdata_unbinned = xm
+
+		# Get fit and prepare fit parameters for plotting, from the call_pdf during the same program excecution
 		if not from_file:
 			# X-Axis for fit
 			# Get fit ranges
@@ -494,10 +520,14 @@ class FitMethods():
 			y_val = []
 			for i in xm:
 				self.RooRealVar_dict['x'].setVal(i)
-				y_val.append(self.this_pdf.getVal(ROOT.RooArgSet(self.RooRealVar_dict['x'])))	
-		else:
-			# Read fit file
-			xm, y_val = self.load_fit(from_file)
+				y_val.append(self.this_pdf.getVal(ROOT.RooArgSet(self.RooRealVar_dict['x'])))
+				# print(self.this_pdf.getVal(ROOT.RooArgSet(self.RooRealVar_dict['x'])))	
+
+		# Histogram data
+		n, xe = np.histogram(self.xdata_unbinned, bins=self.get_binning(self.bins, pre_bin_size))
+		# n = n/len(xdata)
+		cx = 0.5 * (xe[1:] + xe[:-1]) 
+		dx = np.diff(xe)
 
 		# From infer the ground state / isomeric state character of peaks passed
 		#self.__infer_states(self.n_comps, fromm='fit-file')
@@ -518,7 +548,9 @@ class FitMethods():
 					fmt="ok", zorder=1, label=f"Data (bins={bins})"
 			)
 		elif style == 'hist':
-			ax.hist((xdata - self.numerical_peak), bins=self.get_binning(bins=bins), color='grey', edgecolor='black', linewidth=0.1, label=f"Data (bins={bins})")
+			ax.hist((self.xdata_unbinned - self.numerical_peak), bins=self.get_binning(bins=bins, pre_bin_size=pre_bin_size), 
+				color='grey', edgecolor='black', linewidth=histlw,  alpha = histalpha, histtype='step', label=f"Data (bins={bins})",
+				zorder=histzorder)
 
 		# Normalize values
 		integral_cut = sum(y_val) * np.diff(xm)[0]
@@ -529,17 +561,19 @@ class FitMethods():
 
 		# Plot fit	
 		ax.plot(xm - self.numerical_peak, 
-				 y_val, label=f"{self.fit_func_name}({self.dimensions[0]},{self.dimensions[1]})", c='r', zorder=3, linewidth=3)
+				y_val, label=f"{self.fit_func_name}({self.dimensions[0]},{self.dimensions[1]})", c='r', linewidth=lw_fit, alpha=fitalpha,
+				zorder = fitzorder,
+		)
 		
 		ax.fill_between(xm - self.numerical_peak, y_val, alpha=0.4, color='grey')
 
 		# Plot 'carpet'
 		if carpet:
 			if log:
-				ax.plot(xdata - self.numerical_peak, 
-						 np.zeros_like(xdata)+0.9, "|", alpha=0.1, zorder = 3)
-			ax.plot(xdata - self.numerical_peak, 
-					 np.zeros_like(xdata)-5, "|", alpha=0.1, zorder = 3)
+				ax.plot(self.xdata_unbinned - self.numerical_peak, 
+						 np.zeros_like(self.xdata_unbinned)+0.9, "|", alpha=0.1, zorder = 3)
+			ax.plot(self.xdata_unbinned - self.numerical_peak, 
+					 np.zeros_like(self.xdata_unbinned)-5, "|", alpha=0.1, zorder = 3)
 
 		# Plot numerical peak position and FWHM
 		if centroids:
@@ -723,16 +757,18 @@ class FitMethods():
 			ax.set_yscale("log")
 			ax.set_ylim(0.2,2*ylims[1])
 
-		# Zoom in on found peaks
-		if self.peaks.n_peaks != 0:
-			ax.set_xlim(self.peaks.earliest_left_base - xrange_mod[0] - self.numerical_peak, 
-					 self.peaks.latest_right_base + xrange_mod[1] - self.numerical_peak)
-			if focus != False:
-				ax.set_xlim(self.peaks.pos[focus] - 1200 - self.numerical_peak, 
-						 self.peaks.pos[focus] + 1200 - self.numerical_peak)
+		# Zoom in on found peaks if peaks were searched
+		if self.peaks != None:
+			if self.peaks.n_peaks != 0:
+				ax.set_xlim(self.peaks.earliest_left_base - xrange_mod[0] - self.numerical_peak, 
+						 self.peaks.latest_right_base + xrange_mod[1] - self.numerical_peak)
+				if focus:
+					ax.set_xlim(self.xmin-self.numerical_peak, self.xmax-self.numerical_peak)
+		else:
+			ax.set_xlim(self.xmin-self.numerical_peak- xrange_mod[0], self.xmax-self.numerical_peak+ xrange_mod[1])
 
 		# Add axis labels
-		ax.set_xlabel(f'Time-of-Flight [ns] - {self.numerical_peak:.1f}ns', fontsize=fs_xlabel)
+		ax.set_xlabel(f'Time-of-Flight (ns) - {self.numerical_peak:.1f} ns', fontsize=fs_xlabel)
 		ax.set_ylabel(f'Counts per bin', fontsize=fs_ylabel)
 
 		# Set ticks size 
@@ -930,6 +966,81 @@ class LanGauss(FitMethods):
 		if silent == False:
 			plt.show()
 
+class Polynomial(FitMethods):
+	"""
+	Simple polynomial fit
+	"""
+	def __init__(self, lst_file, file_path=False, peaks = 'findit', verbose=False):
+		"""
+		Initializes the class and number of parameters.
+		"""        
+		# QtWidgets.QWidget.__init__(self)
+		FitMethods.__init__(self, lst_file, 'polynomial', 2, peaks=peaks, verbose=verbose)
+		self.fit_func_name = "polynomial"
+		# self.setupUi(self)
+		# self.update_par_list()
+
+	def init_limits(self):
+		self.limits = {
+			'ml':[self.hist.GetMean(1), self.xmin, self.xmax],
+			'mg':[self.hist.GetMean(1), self.xmin, self.xmax],
+			'sl':[self.hist.GetStdDev(1), 0.01*self.hist.GetStdDev(1), 10*self.hist.GetStdDev(1)],
+			'sg':[self.hist.GetStdDev(1), 0.01*self.hist.GetStdDev(1), 10*self.hist.GetStdDev(1)],
+			'ratio':[0.5,0,1],
+		}
+
+	def call_pdf(self, xmin, xmax, limits = False, minos = True):
+		"""
+		Setup Variable, Parameters and PDF and performs fitting of the PDF to ROI data.
+		:param roi_hist: histogram to fit
+		:param xmin: range min for the fit
+		:param xmax: range max for the fit
+		:param index: peak index for display
+		:return list: containing all relevant information about the ROI histogram, PDF, parameters,
+					  PDF components and fit results
+		"""
+		# self.hist = self.lst2roothist(self.lst_file, bins=1)
+		self.xmin=xmin
+		self.xmax=xmax
+		self.hist.GetXaxis().SetRangeUser(xmin, xmax)
+		self.compose_title_unit(self.hist.GetXaxis().GetTitle())
+
+		# Initialize limits
+		if not limits:
+			self.init_limits()
+		else:
+			self.limits=limits
+
+
+
+		# Build variable dicitonary		
+		self.RooRealVar_dict['x'] = RooRealVar("x", self.rootitle, xmin, xmax, self.roounit)
+		#
+		self.RooRealVar_dict['a0'] = RooRealVar('a0', 'a0', self.limits['a0'][0], self.limits['a0'][1], self.limits['a0'][2])
+		self.RooRealVar_dict['a1'] = RooRealVar('a1', 'a1', self.limits['a1'][0], self.limits['a1'][1], self.limits['a1'][2])
+		# self.RooRealVar_dict['A'] = RooRealVar('A', 'A', self.limits['a1'][0], self.limits['a1'][1], self.limits['a1'][2])
+		#
+		self.this_pdf = ROOT.RooPolynomial("pol", "pol", self.RooRealVar_dict['x'], RooArgList(self.RooRealVar_dict['a0'],self.RooRealVar_dict['a1']), lowestOrder = 0)
+		
+		# norm = RooRealVar('events{}'.format(index), "Nb of Events", self.roi_counts)
+		# self.ext_this_pdf = RooExtendPdf('ext_gauss{}'.format(index), 'Ext Gaussian', self.this_pdf, norm)
+		self.roodefs = [self.this_pdf, self.RooRealVar_dict]
+
+		# Calculate numerical position of maximum and FWHM
+		mu = self.xmin
+		sigma = 1
+		self.numerical_peak, self.numerical_FWHM, self.numerical_FWHM_left, self.numerical_FWHM_right = self.find_peak_and_fwhm(mu, sigma)
+		# Store fit results in dict
+		for key in self.RooRealVar_dict:
+			self.Var_dict[key] = self.RooRealVar_dict[f'{key}'].getValV()
+
+
+		# self.fix_var(self.roodefs[2:], index)
+		self.this_roohist, self.fit_results = self.minimize(self.hist, xmin, xmax, minos=ROOT.kTRUE)
+		#
+		return [self.this_roohist, self.this_pdf, self.RooRealVar_dict, self.pstate,
+				self.my_name, self.spl_draw, self.rooCompon, self.fit_results]
+
 class multiGauss(FitMethods):
 	"""
 	Class handling the Gaussian model.
@@ -938,10 +1049,10 @@ class multiGauss(FitMethods):
 		"""
 		Initializes the class and number of parameters.
 		"""        
-		FitMethods.__init__(self, lst_file, file_path=file_path, name='double_gauss', peaks=peaks, verbose=verbose)
+		FitMethods.__init__(self, lst_file, file_path=file_path, name='multiGauss', peaks=peaks, verbose=verbose)
 		# self.setupUi(self)
 		# self.update_par_list()
-		self.fit_func_name = "doubleGauss"
+		self.fit_func_name = "multiGauss"
 		
 		if file_path == False: 
 			self.base_file_name = 'path_to_file'
@@ -969,8 +1080,6 @@ class multiGauss(FitMethods):
 		"""
 		# Convert histogram
 		self.bins = bins
-		self.binning = self.get_binning(bins=self.bins)
-		self.hist = self.lst2roothist(self.lst_file, bins=1)
 		#
 		self.dimensions = dimensions 
 		self.n_comps = n_comps
