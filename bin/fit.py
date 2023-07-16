@@ -462,9 +462,9 @@ class FitMethods():
 	# Plot functions
 
 	def plot(self, bins = 1, log=False, focus=-1, xrange_mod = [800,3000], from_file = False, file_out=False, contribs = False,
-		silent=True, centroids=False, components=False, carpet=False, legend=True, style='errorbar', lw_fit = 3,
+		silent=False, centroids=False, components=False, carpet=False, legend=True, style='errorbar', lw_fit = 2,
 		fs_legend = 14, fs_xlabel = 20, fs_ylabel = 20, fs_ticks = 15, figsize = (6,4), add_vlines = [], 
-		prelim=False, prelimfs = 10, pre_bin_size = 0.8, fitalpha = 1.0, histalpha = 1.0, histlw = 0.1, fitzorder = 2, histzorder = 1, 
+		prelim=False, prelimfs = 10, pre_bin_size = 0.8, fitalpha = 0.5, histalpha = 0.75, histlw = 2.0, fitzorder = 2, histzorder = 1, 
 		external = False, fig = False, ax = False, 
 		):
 		"""  

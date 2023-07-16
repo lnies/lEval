@@ -685,7 +685,7 @@ class FitToDict:
                 if value not in self.fit['RESULTS-TABLE'].columns:
                     print("Value {value} not in dataframe")
                     return 
-                return(float( self.fit['RESULTS-TABLE'][value][self.fit['RESULTS-TABLE']['var']==key] ))
+                return(float(self.fit['RESULTS-TABLE'][value][self.fit['RESULTS-TABLE']['var']==key].iloc[0]))
         #
         else:
             print(f"Key {key} does not exist in the fit dictionary.")
@@ -1105,8 +1105,8 @@ class MRToFIsotope(MRToFUtils):
         self.file_ref1 = file_ref1
         if file_ref1 != '' and t_ref1 == '' and online_ref == '':
             self.ref1_fit = FitToDict(file_ref1)
-            self.ref1_t = float(self.ref1_fit.get_val(centroid, 'value')) + tweak_tofs[1]
-            self.ref1_t_err = float(self.ref1_fit.get_val(centroid, 'error'))
+            self.ref1_t = float(self.ref1_fit.get_val('mu0', 'value')) + tweak_tofs[1]
+            self.ref1_t_err = float(self.ref1_fit.get_val('mu0', 'error'))
         elif file_isotope != '' and file_ref1 != '' and t_ref1 == '' and online_ref != '':
             self.ref1_t = float(self.isotope_fit.get_val(online_ref, 'value')) + tweak_tofs[1]
             self.ref1_t_err = float(self.isotope_fit.get_val(online_ref, 'error'))
@@ -1354,7 +1354,8 @@ class MRToFIsotope(MRToFUtils):
             else:
                 print(f"Appending to '{results_file}'...\n")
                 df2 = pd.DataFrame.from_dict(data=d) 
-                df = df.append(df2, ignore_index=True)
+                # df = df.append(df2, ignore_index=True) # deprecated in pandas >=2.0
+                df = pd.concat([df, df2], ignore_index=True)
         #
         df.to_csv(results_file, index=False)
 
@@ -1402,9 +1403,9 @@ class TOFPlot():
 
     def create_hist1d(self, df=None, 
             bins = 10, log=False, data = 'tof',
-            fs_labels = 25, fs_ticks = 20, figsize = (8.6,6), ylim = (), tof_offset=0,
+            fs_labels = 25, fs_ticks = 20, figsize = (8.6,6), xlim = None, ylim = None, tof_offset=0,
             style = 'errorbar', add_vlines = [], legend=False, orientation='vertical',
-            histalpha = 1.0, histlw = 2, fitzorder = 2, histzorder = 1,
+            histalpha = 0.5, histlw = 2, fitzorder = 2, histzorder = 1,
             external = False, fig = None, ax = None,
         ):
         '''
@@ -1472,11 +1473,11 @@ class TOFPlot():
                 n, xe = np.histogram(xdata, bins=bins)
             if data == 'sweep':
                 xdata = sweep
-                bins = (sweep.max()+1)/100 
+                bins = int((sweep.max()+1) / bins)  
                 n, xe = np.histogram(sweep, bins=int(bins))
             if data == 'counts':
                 xdata = sweep
-                bins = (sweep.max()+1)/100 
+                bins = int((sweep.max()+1) / bins)   
                 n, xe = np.histogram(sweep, bins=int(bins))
 
         # Plot data
@@ -1509,7 +1510,9 @@ class TOFPlot():
             ax.axvline(vline, c='b', linewidth=1, zorder=3, ls = '--')
 
         
-        if len(ylim) != 0:
+        if xlim is not None:
+            ax.set_xlim(xlim[0], xlim[1])
+        if ylim is not None:
             ax.set_ylim(ylim[0], ylim[1])
         
         # Add axis labels
@@ -1527,7 +1530,7 @@ class TOFPlot():
 
     def create_hist2d(self, df=None, 
             x_bins=1, y_bins=1, log=False,
-            fs_labels = 25, fs_ticks = 20, figsize = (8.6,6), ylim = (),
+            fs_labels = 25, fs_ticks = 20, figsize = (8.6,6), xlim = None, ylim = None,
             add_vlines = [], colorbar = False, tof_offset = 0,
             external = False, fig = None, ax = None,):
         """
@@ -1578,7 +1581,9 @@ class TOFPlot():
             ax.axvline(vline, c='b', linewidth=1, zorder=3, ls = '--')
 
         # 
-        if len(ylim) != 0:
+        if xlim is not None:
+            ax.set_xlim(xlim[0], xlim[1])
+        if ylim is not None:
             ax.set_ylim(ylim[0], ylim[1])
         
         # Add axis labels
@@ -1594,16 +1599,23 @@ class TOFPlot():
             self.fig = fig
             self.ax = ax
 
-    def add_isobar_line(self, vline, text):
+    def add_isobar_line(self, vline, text,
+                        external = False, fig = None, ax = None,):
         """
         Add vline to axis
         """
-        self.ax.axvline(vline, c='black', linewidth=1, zorder=1, ls = '--')
-        self.ax.text(vline, 0.9, text, rotation=90, bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'), 
-            transform =self.ax.get_xaxis_transform(),
+        # 
+        if external:
+            fig, ax = fig, ax 
+        else:
+            fig, ax = self.fig, self.ax
+        #
+        ax.axvline(vline, c='black', linewidth=1, zorder=1, ls = '--')
+        ax.text(vline, 0.9, text, rotation=90, bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'), 
+            transform =ax.get_xaxis_transform(),
             horizontalalignment='center',
             verticalalignment='center',
-            fontsize=14,
+            fontsize=8,
         )
 
     def add_isobars(self, nrevs, A=None, iso_list=None):
@@ -1732,8 +1744,9 @@ class Peaks(TOFPlot):
                 self.latest_peak_idx = i 
                 
     def plot(self, bins = 10, lines = True, focus=False, log=False, silent = False, 
-            fs_labels = 25, fs_ticks = 20, figsize = (8.6,6), ylim = (),
-            save = False, path_to_file = "peaks", style = 'errorbar', add_vlines = [],
+            fs_labels = 25, fs_ticks = 20, figsize = (8.6,6), xlim = None, ylim = None, legend = False,
+            save = False, path_to_file = "peaks", style = 'hist', add_vlines = [],
+            histalpha = 0.5, histlw = 2, fitzorder = 2, histzorder = 1,
             external = False, fig = None, ax = None):
         '''
         Plot 1D Histogram with found peaks.
@@ -1745,99 +1758,8 @@ class Peaks(TOFPlot):
         - silent: if True, shows plot on canvas
         - save: if True, uses path_to_file to save plot as .pdf
         - path_to_file: path to save .pdf in
-        - add_vlines: array of tof values where vlines should be added
-        '''
-        #
-        # if not external plotting
-        if not external:
-            plt.rcParams["figure.figsize"] = figsize
-            fig, ax = plt.subplots(nrows=1, ncols=1, figsize=figsize)
-        #
-        if self.n_peaks == 0:
-            print("Not peaks, no plots :)")
-            return 0 
-        #            
-        xdata = self.file.tof
-        n, xe = np.histogram(xdata, bins=self.get_binning(bins))
-        cx = 0.5 * (xe[1:] + xe[:-1])
-        dx = np.diff(xe)
-
-        # Plot data
-        if style == 'errorbar':
-            # use sqrt(n) as error, if n==1 use smaller error to avoid having inifite long error bars in log-scale
-            ax.errorbar(cx, n, [val ** 0.5 if val != 1 else 0.75 for val in n] ,
-                    ecolor='black', elinewidth=1,  
-                    fmt="ok", zorder=1, label=f"Data (bins={bins})")
-            # ax.plot(xdata, np.zeros_like(xdata)-5, "|", alpha=0.1, label = "ToF Data", zorder = 3)
-            
-        elif style == 'hist':
-            ax.hist((xdata), bins=self.get_binning(bins=bins), color='grey', edgecolor='black', linewidth=0.1, label=f"Data (bins={bins})")
-
-
-        # plt.errorbar(cx, n, n ** 0.5, fmt="ok", zorder=1)
-        #
-        if log:
-            ax.set_yscale('log')
-        #
-        if lines:
-            for i in range(self.n_peaks):
-                ax.axvline(self.pos[i], c='r', linewidth=1, zorder=3)
-        
-        xm = np.linspace(xe[0], xe[-1], num=1000)
-        plt.legend();
-        # plt.xlim(peaks.pos[0]-300, peaks.pos[0]+300)
-
-        # add vlines
-        for vline in add_vlines:
-            ax.axvline(vline, c='b', linewidth=1, zorder=3, ls = '--')
-
-        
-        # Zoom in on found peaks
-        if focus:
-            ax.set_xlim(self.earliest_left_base-200, self.latest_right_base+200)
-
-        # 
-        if len(ylim) != 0:
-            ax.set_ylim(ylim[0], ylim[1])
-        
-        # Add axis labels
-        ax.set_xlabel(f'Time-of-Flight [ns]', fontsize=fs_labels)
-        ax.set_ylabel(f'Counts per bin', fontsize=fs_labels)
-
-        # Set ticks size 
-        ax.tick_params(axis='both', which='major', labelsize=fs_ticks)
-
-        if not external:
-            plt.tight_layout()
-
-        if not silent: 
-            plt.show()
-            # plt.clf()
-
-        # return axis if external plotting is uesd
-        if external:
-            return fig, ax
-        #
-        if save:
-            plt.savefig(path_to_file+".pdf", dpi=300)
-            plt.clf()
-
-    def plottest(self, bins = 10, lines = True, focus=False, log=False, silent = False, 
-            fs_labels = 25, fs_ticks = 20, figsize = (8.6,6), ylim = (), legend = False,
-            save = False, path_to_file = "peaks", style = 'errorbar', add_vlines = [],
-            histalpha = 1.0, histlw = 2, fitzorder = 2, histzorder = 1,
-            external = False, fig = None, ax = None):
-        '''
-        Plot 1D Histogram with found peaks.
-        Parameters:
-        - bins: Number of bins to be rebinned. Default=10
-        - lines: Draws lines where peaks are found. Default=True
-        - focus: if True, sets xlimits to first and last found peak
-        - log: if Ture, sets logscale on y-axis
-        - silent: if True, shows plot on canvas
-        - save: if True, uses path_to_file to save plot as .pdf
-        - path_to_file: path to save .pdf in
-        - add_vlines: array of tof values where vlines should be added
+        - add_vlines: array of tof values where
+         vlines should be added
         '''
         #
         if self.n_peaks == 0:
@@ -1859,7 +1781,10 @@ class Peaks(TOFPlot):
             self.ax.set_xlim(self.earliest_left_base-200, self.latest_right_base+200)
 
         # 
-        if len(ylim) != 0:
+        if xlim is not None:
+            self.ax.set_xlim(self.pos[0]+xlim[0], self.pos[0]+xlim[1])
+        # 
+        if ylim is not None:
             self.ax.set_ylim(ylim[0], ylim[1])
         
         # Rewrite ticks based on first ToF peak found
@@ -1882,13 +1807,21 @@ class Peaks(TOFPlot):
             #
             for vline,text in zip(self.vlines, self.vlines_text):
                 self.add_isobar_line(vline,text)
+            # Rescale y axis
+            ylims = self.ax.get_ylim()
+            self.ax.set_ylim(ylims[0], ylims[1]*5)
+
 
         if not external:
             plt.tight_layout()
 
-        if not silent: 
+        # Show plot on canvas
+        if not silent:
             plt.show()
-            # plt.clf()
+
+        # Clear canvas to avoid printing on top of other plot in batch mode
+        if silent:
+            plt.clf()
 
         # return axis if external plotting is uesd
         if external:
@@ -1898,7 +1831,7 @@ class Peaks(TOFPlot):
             plt.savefig(path_to_file, dpi=300)
             # plt.clf()
    
-    def plot2d(self, x_bins=1, y_bins=1, focus=-1, log=False, figsize=(12,7)):
+    def plot2d(self, x_bins=20, hist2d_y_bins = 100, y_bins=10, focus=-1, log=False, figsize=(12,7)):
         """
         Plot 2D Histogram with found peaks.
         """
@@ -1925,10 +1858,20 @@ class Peaks(TOFPlot):
 
 
         # Bottom left: MCS6-like 2d histogram
-        self.create_hist2d(external=True, ax=ax_0, fig=fig, x_bins=1, y_bins=y_bins)
+        self.create_hist2d(external=True, ax=ax_0, fig=fig, x_bins=1, y_bins=hist2d_y_bins)
 
         # Top left: x-projection
         self.create_hist1d(external=True, ax=ax_x, fig=fig, style='hist', bins=x_bins, data='tof', log=log)
+
+        # Check if there are lines passed and plot them
+        if len(self.vlines) != 0:
+            #
+            for vline,text in zip(self.vlines, self.vlines_text):
+                self.add_isobar_line(vline,text, external=True, fig=fig, ax=ax_x)
+            # Rescale y axis
+            ylims = ax_x.get_ylim()
+            ax_x.set_ylim(ylims[0], ylims[1]*5)
+
         
         # Bottom right: y-projection
         self.create_hist1d(external=True, ax=ax_y, fig=fig, style='hist', bins=y_bins, 
