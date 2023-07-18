@@ -34,7 +34,12 @@ FILE_LOCATION = os.path.dirname(__file__)+"/"
 
 def custom_colors():
     # best.col style 2d heat map
-    nipy_spectral = mpl.colormaps.get_cmap('nipy_spectral')
+    # fetch color map depending on mpl version
+    if int(mpl.__version__.replace(".", "")) > 370:
+        nipy_spectral = mpl.colormaps.get_cmap('nipy_spectral')
+    else:
+        nipy_spectral = mpl.cm.get_cmap('nipy_spectral')
+    #
     newcolors = nipy_spectral(np.linspace(0, 1, 256))
     newcolors = newcolors[120:240,:]
     white = np.array([1, 1, 1, 1])
