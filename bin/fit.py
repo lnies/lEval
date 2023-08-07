@@ -29,9 +29,9 @@ import mmap
 # ROOT.gSystem.Load('hyperEMG12_cxx.so')
 # ROOT.gSystem.Load('hyperEMG12ex_cxx.so')
 
-from utilities import FitToDict, Peaks, softCool, TOFPlot
+from utilities import FitToDict, Peaks, softCool, TOFPlot, custom_colors
 
-class FitMethods():
+class FitMethods(TOFPlot):
 	"""
 	Generic class with methods inherited by all PDF class models.
 	"""
@@ -435,37 +435,55 @@ class FitMethods():
 			- xvalues of fit
 			- yvalues of fit 
 		'''
-		fitfromfile = FitToDict(file)
+		self.fit = FitToDict(file)
 		#
-		if not 'FIT-VALUES' in fitfromfile.fit:
+		if not 'FIT-VALUES' in self.fit.fit:
 			print(f"Fit file {file} has no fit values that were exported.")
 			return 0
 		#
-		xm = np.array(fitfromfile.fit['FIT-VALUES'].tof)
-		y_val = np.array(fitfromfile.fit['FIT-VALUES'].fit)
-		self.xmin = float(fitfromfile.fit['META-DATA']['xmin'].split(",")[0].replace("[", "").replace("]", ""))
-		self.xmax = float(fitfromfile.fit['META-DATA']['xmax'].split(",")[-1].replace("]", "").replace("[", ""))
-		self.numerical_peak = float(fitfromfile.fit['META-DATA']['numerical_peak'])
-		self.numerical_FWHM = float(fitfromfile.fit['META-DATA']['numerical_FWHM'])
-		self.numerical_FWHM_left = float(fitfromfile.fit['META-DATA']['numerical_FWHM_left'])
-		self.numerical_FWHM_right = float(fitfromfile.fit['META-DATA']['numerical_FWHM_right'])
-		self.fit_func_name = fitfromfile.fit['META-DATA']['fit_function']
+		xm = np.array(self.fit.fit['FIT-VALUES'].tof)
+		y_val = np.array(self.fit.fit['FIT-VALUES'].fit)
+		self.xmin = float(self.fit.fit['META-DATA']['xmin'].split(",")[0].replace("[", "").replace("]", ""))
+		self.xmax = float(self.fit.fit['META-DATA']['xmax'].split(",")[-1].replace("]", "").replace("[", ""))
+		self.numerical_peak = float(self.fit.fit['META-DATA']['numerical_peak'])
+		self.numerical_FWHM = float(self.fit.fit['META-DATA']['numerical_FWHM'])
+		self.numerical_FWHM_left = float(self.fit.fit['META-DATA']['numerical_FWHM_left'])
+		self.numerical_FWHM_right = float(self.fit.fit['META-DATA']['numerical_FWHM_right'])
+		self.fit_func_name = self.fit.fit['META-DATA']['fit_function']
 		if self.fit_func_name == 'hyperEmg':
-			self.n_comps = int(fitfromfile.fit['META-DATA']['n_comps'])
-			self.dimensions = np.fromstring(fitfromfile.fit['META-DATA']['dimensions'].strip('[]'), sep=',', dtype=int)
+			self.n_comps = int(self.fit.fit['META-DATA']['n_comps'])
+			self.dimensions = np.fromstring(self.fit.fit['META-DATA']['dimensions'].strip('[]'), sep=',', dtype=int)
 		#
-		for idx,row in fitfromfile.fit['RESULTS-TABLE'].iterrows():
+		for idx,row in self.fit.fit['RESULTS-TABLE'].iterrows():
 			self.Var_dict[row['var']] = row['value']
+		# Load states
+		self.states = []
+		for key in self.Var_dict:
+			d = {}
+			if(re.match("^mu", key)):
+				if len(key.split("-")) == 1:
+					d = {
+						'peak': key.split("-")[0],
+						'state': 'gs'
+					}
+				if len(key.split("-")) == 2:
+					d = {
+						'peak': key.split("-")[0],
+						'state': key.split("-")[1]
+					}
+				#
+				self.states.append(d)
 		#
 		return xm, y_val
 
 	# Plot functions
 
-	def plot(self, bins = 1, log=False, focus=-1, xrange_mod = [800,3000], from_file = False, file_out=False, contribs = False,
-		silent=False, centroids=False, components=False, carpet=False, legend=True, style='errorbar', lw_fit = 2,
+	def plot(self, bins = 1, log=True, focus=False, xrange_mod = [800,3000], from_file = False, file_out=False, contribs = False,
+		silent=False, centroids=False, components=False, carpet=False, legend=True, style='hist', lw_fit = 2,
 		fs_legend = 14, fs_xlabel = 20, fs_ylabel = 20, fs_ticks = 15, figsize = (6,4), add_vlines = [], 
-		prelim=False, prelimfs = 10, pre_bin_size = 0.8, fitalpha = 0.5, histalpha = 0.75, histlw = 2.0, fitzorder = 2, histzorder = 1, 
-		external = False, fig = False, ax = False, 
+		prelim=False, prelimfs = 10, pre_bin_size = 0.8, fitalpha = 0.5, histalpha = 0.75, histlw = 2.0, fitzorder = 2, histzorder = 1,
+		tofoffset = True,
+		external = False, fig = False, ax = False,
 		):
 		"""  
 		Wrapper for plotting the fit and data
@@ -486,6 +504,7 @@ class FitMethods():
 			- prelimfs: preliminary watermark font size
 			- fitalpha: alpha of fit
 			- fitzorder, histzorder: zorders for plot
+			- tofoffset: if True, sets ticks to 0 at the first found or fitted peak, writes offset into xlabel
 			- external: if rountine is to be used to plot onto an external canvas. requires fig and axis to be passed. axis will be then returned
 		"""
 		# if not external plotting
@@ -540,15 +559,19 @@ class FitMethods():
 			plot_xmin = self.xmin
 			plot_xmax = self.xmax
 
+		# zero the tof if True
+		tof_zero = self.numerical_peak if tofoffset else 0
+
+
 		# Plot data
 		if style == 'errorbar':
 			# use sqrt(n) as error, if n==1 use smaller error to avoid having inifite long error bars in log-scale
-			ax.errorbar(cx - self.numerical_peak, n, [val ** 0.5 if val != 1 else 0.75 for val in n] ,
+			ax.errorbar(cx - tof_zero, n, [val ** 0.5 if val != 1 else 0.75 for val in n] ,
 					ecolor='black', elinewidth=1,  
 					fmt="ok", zorder=1, label=f"Data (bins={bins})"
 			)
 		elif style == 'hist':
-			ax.hist((self.xdata_unbinned - self.numerical_peak), bins=self.get_binning(bins=bins, pre_bin_size=pre_bin_size), 
+			ax.hist((self.xdata_unbinned - tof_zero), bins=self.get_binning(bins=bins, pre_bin_size=pre_bin_size), 
 				color='grey', edgecolor='black', linewidth=histlw,  alpha = histalpha, histtype='step', label=f"Data (bins={bins})",
 				zorder=histzorder)
 
@@ -560,98 +583,39 @@ class FitMethods():
 		y_val = y_val / integral_cut * sum(n_cut) * dx[0]
 
 		# Plot fit	
-		ax.plot(xm - self.numerical_peak, 
+		ax.plot(xm - tof_zero, 
 				y_val, label=f"{self.fit_func_name}({self.dimensions[0]},{self.dimensions[1]})", c='r', linewidth=lw_fit, alpha=fitalpha,
 				zorder = fitzorder,
 		)
 		
-		ax.fill_between(xm - self.numerical_peak, y_val, alpha=0.4, color='grey')
+		ax.fill_between(xm - tof_zero, y_val, alpha=0.4, color='grey')
 
 		# Plot 'carpet'
 		if carpet:
 			if log:
-				ax.plot(self.xdata_unbinned - self.numerical_peak, 
+				ax.plot(self.xdata_unbinned - tof_zero, 
 						 np.zeros_like(self.xdata_unbinned)+0.9, "|", alpha=0.1, zorder = 3)
-			ax.plot(self.xdata_unbinned - self.numerical_peak, 
+			ax.plot(self.xdata_unbinned - tof_zero, 
 					 np.zeros_like(self.xdata_unbinned)-5, "|", alpha=0.1, zorder = 3)
 
 		# Plot numerical peak position and FWHM
 		if centroids:
-			ax.axvline(self.numerical_peak - self.numerical_peak, c='r', linewidth=1, zorder=3)
-			ax.axvline(self.numerical_FWHM_left - self.numerical_peak, c='blue', linewidth=1, zorder=3)
-			ax.axvline(self.numerical_FWHM_right - self.numerical_peak, c='blue', linewidth=1, zorder=3)
+			ax.axvline(self.numerical_peak - tof_zero, c='r', linewidth=1, zorder=3)
+			ax.axvline(self.numerical_FWHM_left - tof_zero, c='blue', linewidth=1, zorder=3)
+			ax.axvline(self.numerical_FWHM_right - tof_zero, c='blue', linewidth=1, zorder=3)
 			# Plot center of gaussian component
 			for comp in range(0,self.n_comps,1):
 				if f'mu{comp}' in self.Var_dict.keys():
-					ax.axvline(self.Var_dict[f'mu{comp}'] - self.numerical_peak, c='r', linewidth=1, zorder=3)
+					ax.axvline(self.Var_dict[f'mu{comp}'] - tof_zero, c='r', linewidth=1, zorder=3)
 				if f'mu{comp}-E0' in self.Var_dict.keys():
-					ax.axvline(self.Var_dict[f'mu{comp}']+self.Var_dict[f'mu{comp}-E0'] - self.numerical_peak, c='r', linewidth=1, zorder=3)
+					ax.axvline(self.Var_dict[f'mu{comp}']+self.Var_dict[f'mu{comp}-E0'] - tof_zero, c='r', linewidth=1, zorder=3)
 				if f'mu{comp}-E1' in self.Var_dict.keys():
-					ax.axvline(self.Var_dict[f'mu{comp}']+self.Var_dict[f'mu{comp}-E1'] - self.numerical_peak, c='r', linewidth=1, zorder=3)
+					ax.axvline(self.Var_dict[f'mu{comp}']+self.Var_dict[f'mu{comp}-E1'] - tof_zero, c='r', linewidth=1, zorder=3)
 				else:
 					continue
+					
 		# Plot components
-		if components and not contribs:
-			i_ratio = 0 
-			n_ratios = self.n_comps * (self.dimensions[0] + self.dimensions[1]) - 1
-
-			# print([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)])
-			# print(sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)]))
-			# print(1-sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)]))
-
-			# Loop through components as the ratios are assigned: inner loop must be the different species while outer loop is the egh component
-			# Negative egh components
-			for dim in range(0,self.dimensions[0],1):
-				for comp in range(0,self.n_comps,1):
-					y_val = self.neg_func(x=xm,mu=self.Var_dict[f'mu{comp}'], 
-												sigma=self.Var_dict[f'sigma'], 
-												ntau=self.Var_dict[f'ntau{dim}'])
-					# normalize accounting for fit ratios
-					integral_cut = sum(y_val) * np.diff(xm)[0]
-					y_val = y_val / integral_cut * sum(n_cut) * dx[0]
-					if (self.n_comps == 1 and (self.dimensions[0]+self.dimensions[1]) == 1):
-						ratio = 1
-					else:
-						if i_ratio != n_ratios:
-							y_val *= self.Var_dict[f'ratio{i_ratio}']
-						else:
-							y_val *= 1-sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)])
-					i_ratio += 1
-					# Plot
-					plt.plot(xm - self.numerical_peak, 
-							 y_val, c='grey', ls="--", zorder=2, linewidth=2.25,
-							 #label=f"Neg. component {comp}:{dim})"
-							 )
-					# Shade area under component
-					plt.fill_between(xm - self.numerical_peak, y_val, alpha=0.2, color='grey')
-
-			# Positive egh components
-			for dim in range(0,self.dimensions[1],1):
-				for comp in range(0,self.n_comps,1):
-					y_val = self.pos_func(x=xm,mu=self.Var_dict[f'mu{comp}'], 
-												sigma=self.Var_dict[f'sigma'], 
-												ptau=self.Var_dict[f'ptau{dim}'])
-					# normalize accounting for fit ratios
-					integral_cut = sum(y_val) * np.diff(xm)[0]
-					y_val = y_val / integral_cut * sum(n_cut) * dx[0]
-					if (self.n_comps == 1 and (self.dimensions[0]+self.dimensions[1]) == 1):
-						ratio = 1
-					else:
-						if i_ratio != n_ratios:
-							y_val *= self.Var_dict[f'ratio{i_ratio}']
-						else:
-							y_val *= 1-sum([self.Var_dict[f'ratio{r}'] for r in np.arange(0,n_ratios,1)])
-					i_ratio += 1
-					# Plot
-					plt.plot(xm - self.numerical_peak, 
-							 y_val, c='grey', ls="--", zorder=2, linewidth=2.25,
-							 #label=f"Neg. component {comp}:{dim})"
-							 )
-					# Shade area under component
-					print("filled_between")
-					plt.fill_between(xm - self.numerical_peak, y_val, step='pre', alpha=0.2, color='grey')
-
-		if components and contribs:
+		if components:
 
 			n_ratios = self.n_comps - 1
 			n_contribs = np.sum(self.dimensions) - 1 
@@ -694,12 +658,12 @@ class FitMethods():
 					# print(f"Ratio: {ratio}, Contrib: {contrib}, Dimension {dim}, -, peak" + state["peak"] + state["state"])
 
 					# Plot
-					ax.plot(xm - self.numerical_peak, 
+					ax.plot(xm - tof_zero, 
 							 y_val, c='grey', ls="--", zorder=2, linewidth=2.25,
 							 #label=f"Neg. component {comp}:{dim})"
 							 )
 					# Shade area under component
-					ax.fill_between(xm - self.numerical_peak, y_val, alpha=0.4, color='grey')
+					ax.fill_between(xm - tof_zero, y_val, alpha=0.4, color='grey')
 
 				#
 				i_contrib += 1 
@@ -736,12 +700,12 @@ class FitMethods():
 					# print(f"Ratio: {ratio}, Contrib: {contrib}, Dimension {dim}, +, peak" + state["peak"] + state["state"])
 					
 					# Plot
-					ax.plot(xm - self.numerical_peak, 
+					ax.plot(xm - tof_zero, 
 							 y_val, c='grey', ls="--", zorder=2, linewidth=2.25,
 							 #label=f"Neg. component {comp}:{dim})"
 							 )
 					# Shade area under component
-					ax.fill_between(xm - self.numerical_peak, y_val, alpha=0.4, color='grey')
+					ax.fill_between(xm - tof_zero, y_val, alpha=0.4, color='grey')
 
 				#
 				i_contrib += 1 
@@ -749,7 +713,7 @@ class FitMethods():
 
         # add vlines
 		for vline in add_vlines:
-			ax.axvline(vline-self.numerical_peak, c='blue', linewidth=1, zorder=3, ls = '--')
+			ax.axvline(vline-tof_zero, c='blue', linewidth=1, zorder=3, ls = '--')
 		
 		# Get y axis limits
 		ylims = ax.get_ylim()
@@ -758,21 +722,27 @@ class FitMethods():
 			ax.set_ylim(0.2,2*ylims[1])
 
 		# Zoom in on found peaks if peaks were searched
-		if self.peaks != None:
+		if self.peaks is not None:
 			if self.peaks.n_peaks != 0:
-				ax.set_xlim(self.peaks.earliest_left_base - xrange_mod[0] - self.numerical_peak, 
-						 self.peaks.latest_right_base + xrange_mod[1] - self.numerical_peak)
+				ax.set_xlim(self.peaks.earliest_left_base - xrange_mod[0] - tof_zero, 
+						 self.peaks.latest_right_base + xrange_mod[1] - tof_zero)
 				if focus:
-					ax.set_xlim(self.xmin-self.numerical_peak, self.xmax-self.numerical_peak)
-		else:
-			ax.set_xlim(self.xmin-self.numerical_peak- xrange_mod[0], self.xmax-self.numerical_peak+ xrange_mod[1])
-
-		# Add axis labels
-		ax.set_xlabel(f'Time-of-Flight (ns) - {self.numerical_peak:.1f} ns', fontsize=fs_xlabel)
-		ax.set_ylabel(f'Counts per bin', fontsize=fs_ylabel)
+					ax.set_xlim(self.xmin-tof_zero, self.xmax-tof_zero)
+		if self.peaks is None:
+			print(self.xmin-tof_zero- xrange_mod[0])
+			ax.set_xlim(self.xmin-tof_zero- xrange_mod[0], self.xmax-tof_zero+ xrange_mod[1])
 
 		# Set ticks size 
 		ax.tick_params(axis='both', which='major', labelsize=fs_ticks)
+
+		# Add axis labels
+		if tofoffset:
+			ax.set_xlabel(f'Time-of-Flight (ns) - {tof_zero:.1f} ns', fontsize=fs_xlabel)
+		else:
+			ax.set_xlabel(f'Time-of-Flight (ns)', fontsize=fs_xlabel)
+			ax.get_xaxis().get_major_formatter().set_useOffset(False)
+			ax.get_xaxis().get_major_formatter().set_scientific(False)
+		ax.set_ylabel(f'Counts per bin', fontsize=fs_ylabel)
 
 		# Format Legend
 		if legend:
@@ -793,16 +763,16 @@ class FitMethods():
 
 
 		# Show plot on canvas
-		if silent == False:
+		if not silent:
 			plt.show()
 
 		# Clear canvas to avoid printing on top of other plot in batch mode
-		if silent:
+		if silent and not external:
 			plt.clf()
 
 		# return axis if external plotting is uesd
-		if external:
-			return fig, ax
+		# if external:
+		# 	return fig, ax
 
 class Gauss(FitMethods):
 	"""
@@ -1181,6 +1151,8 @@ class hyperEmg(FitMethods):
 		# isomeric states
 		self.pos_funct_on_gs = '1/(2*@3)*exp((@2/(TMath::Sqrt(2)*@3))^2-(@0-(@1+@4))/@3)*TMath::Erfc(@2/(TMath::Sqrt(2)*@3)-(@0-(@1+@4))/(TMath::Sqrt(2)*@2))'
 		self.neg_funct_on_gs = '1/(2*@3)*exp((@2/(TMath::Sqrt(2)*@3))^2+(@0-(@1+@4))/@3)*TMath::Erfc(@2/(TMath::Sqrt(2)*@3)+(@0-(@1+@4))/(TMath::Sqrt(2)*@2))'
+		self.params = []
+		self.simultaneous = False
 		# Wikipedia definition
 		# self.pos_funct = '1/(2*@3)*exp(1/(2*@3)*(2*@1+(1/@3)*@2^2-2*@0))*TMath::Erfc((@1+(1/@3)*@2^2-@0)/(TMath::Sqrt(2)*@2))'
 		# self.neg_funct = '1/(2*@3)*exp(1/(2*@3)*(2*@1+(1/@3)*@2^2-2*@0))*TMath::Erfc((@1+(1/@3)*@2^2-@0)/(TMath::Sqrt(2)*@2))'
@@ -1235,6 +1207,7 @@ class hyperEmg(FitMethods):
 		"""
 		Manual definition of a RooFit like arbitrary string for the hyperEmg fit
 		"""
+		#
 		return f'{R}*1/(2*{c3})*exp(({c2}/(1.4142*{c3}))^2{pol}({c0}-{c1})/{c3})*TMath::Erfc({c2}/(1.4142*{c3}){pol}({c0}-{c1})/(1.4142*{c2}))'
 
 	def build_function_string(self, dimensions = [0,1], params = {}, state = {}):
@@ -1274,7 +1247,7 @@ class hyperEmg(FitMethods):
 
 			else:
 				mu = '@1'
-			# Builf function
+			# Build function
 			funct += self.function_string(c1 = mu, c2 = sigma, c3=ntau, R=f"{contrib}", pol="+")+ "+"
 			comp+=1
 		#
@@ -1311,7 +1284,7 @@ class hyperEmg(FitMethods):
 		# Add constant background
 		# funct = funct[:-1] + f"+@{4+2*comp+1}" # cut away last character which is a "+" and add const. background
 		#
-		return funct[:-1]
+		return funct[:-1] # cut away last +
 	
 	def build_function_string_SAVE(self, dimensions = [0,1], params = {}, state = {}):
 		#
@@ -1437,17 +1410,56 @@ class hyperEmg(FitMethods):
 			funct += self.function_string(c1 = mu, c2 = sigma, c3=ptau, R=f"{contrib}", pol="-")+ "+"
 			comp+=1
 		return funct[:-1] # cut away last character which is a "+"
+
+	def __add_EMG_component(self, j, i, pol='-'):
+		# component name
+		if pol == "+": # positive sign is negative component
+			pdf_name = f"state_{j}-{i}n"
+		else:
+			pdf_name = f"state_{j}-{i}p"
+		print(f'--> Component: {pdf_name}')
 		
+		# build function
+		funct = self.function_string(c0='@0', c1='@1', c2='@2', c3='@3', R='1',pol=pol)
+		print(f'--> Function String: {funct}')
+		
+		# Build RooArgList iteratively depending on which parameters are fixed
+		listofRooArgs = RooArgList()
+		listofRooArgs.add(self.RooRealVar_dict['x'])
+		print("--> Add RooArg: 'x'")
+		# Add gaussian center
+		mu = self.states[j]["peak"]
+		listofRooArgs.add(self.RooRealVar_dict[mu])
+		print(f"--> Add RooArg: '{mu}'")
+		#
+		listofRooArgs.add(self.RooRealVar_dict['sigma'])
+		print(f"--> Add RooArg: 'sigma'")
+		if pol == '+': # negative component has +  
+			tau = f"ntau{i}"
+			listofRooArgs.add(self.RooRealVar_dict[f"ntau{i}"])
+		else: # positive component has - 
+			tau = f"ptau{i}"
+			listofRooArgs.add(self.RooRealVar_dict[f"ptau{i}"])
+		print(f"--> Add RooArg: '{tau}'")
+
+		state = 'mu0'
+		if self.states[j]["state"] != 'gs':
+			E = self.states[j]["peak"]+"-"+self.states[j]["state"]
+			listofRooArgs.add(self.RooRealVar_dict[E])
+			print(f"--> Add RooArg: '{E}'")
+		#
+			state = E
+
+		self.EMGs_dict[pdf_name] = RooGenericPdf(pdf_name,pdf_name,funct,listofRooArgs)
+		# return RooGenericPdf(pdf_name,pdf_name,funct,listofRooArgs)
+
 	def __build_params(self, limits):
 		"""
 		Takes limits dictionary and puts all fixed fit variables into another dict
 		"""
-		params = {}
 		for limit in limits:
 			if limits[limit][0] == limits[limit][1] and limits[limit][0] == limits[limit][2]:
-				params[limit] = limits[limit][0]
-		#
-		return params
+				self.params[limit] = limits[limit][0]
 
 	def __infer_states(self, n_comps, fromm='limits'):
 		"""
@@ -1492,16 +1504,116 @@ class hyperEmg(FitMethods):
 			- for_template_fit: also stores parameters and dict for template fitting
 		'''
 		#
-		fitfromfile = FitToDict(file)
+		self.fit = FitToDict(file)
 		#
-		if not 'FIT-VALUES' in fitfromfile.fit:
+		if not 'FIT-VALUES' in self.fit.fit:
 			print(f"Fit file {file} has no fit values that were exported.")
 			return 0
 		#
-		for idx,row in fitfromfile.fit['RESULTS-TABLE'].iterrows():
+		for idx,row in self.fit.fit['RESULTS-TABLE'].iterrows():
 			if row['var'] in params_to_fix:
 				self.limits[row['var']] = [row['value'], row['value'], row['value']]
 				self.params[row['var']] = row['value']
+
+	def build_RooGenericPdf_dict(self):
+
+		for d in range(self.dimensions[0]+self.dimensions[1]-1): 
+			var_name = f"contrib{d}"
+			print(f"--> Add RooArg: 'contrib{d}'")
+			self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
+
+		# Build one PDF per component, consisting of contributions of different exponetially modified gaussian distributions
+		for j in range(len(self.states)):
+			pdf_name = f"comp{j}"
+			# Start by building the PDF function string
+			funct = self.build_function_string(dimensions=self.dimensions, params=self.params, state = self.states[j])
+			print(f'--> Function String: {funct}')
+			# Build RooArgList iteratively depending on which parameters are fixed
+			listofRooArgs = RooArgList()
+			listofRooArgs.add(self.RooRealVar_dict['x'])
+			print("--> Add RooArg: 'x'")
+			# Add gaussian center
+			mu = self.states[j]["peak"]
+			listofRooArgs.add(self.RooRealVar_dict[mu])
+			print(f"--> Add RooArg: '{mu}'")
+			#
+			listofRooArgs.add(self.RooRealVar_dict['sigma'])
+			print(f"--> Add RooArg: 'sigma'")
+			# 
+			contrib_idx = 0
+			for i in range(self.dimensions[0]):
+				tau = f"ntau{i}"
+				listofRooArgs.add(self.RooRealVar_dict[f"ntau{i}"])
+				print(f"--> Add RooArg: '{tau}'")
+				if self.dimensions[0]+self.dimensions[1] != 1 and contrib_idx < self.dimensions[0]+self.dimensions[1] - 1:
+					listofRooArgs.add(self.RooRealVar_dict[f"contrib{contrib_idx}"])
+					print(f"--> Add RooArg: 'contrib{contrib_idx}'")
+					contrib_idx += 1
+			for i in range(self.dimensions[1]):
+				tau = f"ptau{i}"
+				listofRooArgs.add(self.RooRealVar_dict[f"ptau{i}"])
+				print(f"--> Add RooArg: '{tau}'")
+				if self.dimensions[0]+self.dimensions[1] != 1 and contrib_idx < self.dimensions[0]+self.dimensions[1] - 1:
+					listofRooArgs.add(self.RooRealVar_dict[f"contrib{contrib_idx}"])
+					print(f"--> Add RooArg: 'contrib{contrib_idx}'")
+					contrib_idx += 1
+			# Reset contrib_idx counter of contribution ratios are to be kept the same for multiple peaks
+			if self.simultaneous:
+				contrib_idx = 0
+
+			state = 'mu0'
+			if self.states[j]["state"] != 'gs':
+				E = self.states[j]["peak"]+"-"+self.states[j]["state"]
+				listofRooArgs.add(self.RooRealVar_dict[E])
+				print(f"--> Add RooArg: '{E}'")
+			#
+				state = E
+
+			self.RooGenericPdf_dict[pdf_name] = RooGenericPdf(pdf_name,pdf_name,funct,listofRooArgs)
+			
+		# Build component ratios
+			if j < (self.n_comps-1): 
+				var_name = f"ratio{j}"
+				print(f"--> Add RooArg: 'ratio{j}'")
+				self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
+			#
+			j += 1
+
+	def build_final_hyperEMGpdfs(self):
+		# Build one PDF per component, consisting of contributions of different exponetially modified gaussian distributions
+		# WARNING:
+		# The RooArgList have usually to be passed as attributes of the class, I encountered seg faults when I tried to pass them
+		# through the return value of the functions....
+		
+		for d in range(self.dimensions[0]+self.dimensions[1]-1): 
+			var_name = f"contrib{d}"
+			self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
+
+		for j in range(len(self.states)):
+
+			EMGs = RooArgList()
+			EMG_ratios = RooArgList()
+			self.EMGs_dict = {}
+
+			contrib_idx = 0
+			for i in range(self.dimensions[0]):
+				self.__add_EMG_component(j, i, "+")# negative tail has + sign
+
+			for i in range(self.dimensions[1]):
+				self.__add_EMG_component(j, i, "-") # positive tail has - sign
+
+			for d in range(self.dimensions[0]+self.dimensions[1]-1):
+				key = f'contrib{d}'
+				print(f"--> Add RooArg: 'contrib{d}'")
+				EMG_ratios.add(self.RooRealVar_dict[key])
+
+			for emgs in self.EMGs_dict:
+				EMGs.add(self.EMGs_dict[emgs])
+
+			self.RooGenericPdf_dict[j] = RooAddPdf(f'hyperEmg-{j}', f'hyperEmg-{j}', EMGs, EMG_ratios, recursiveFraction = ROOT.kFALSE)
+		
+		#
+		# j += 1
 
 	def call_pdf(self, xmin, xmax, dimensions = [1,2], n_comps = 1, simultaneous = False, 
 				bins = 1, limits=False, minos = ROOT.kFALSE):
@@ -1522,8 +1634,10 @@ class hyperEmg(FitMethods):
 
 		# Convert histogram
 		self.bins = bins
+		#
 		self.binning = self.get_binning(bins=self.bins)
 		self.n_comps = n_comps
+		self.simultaneous = simultaneous
 		self.hist = self.lst2roothist(self.lst_file, bins=1)
 
 		self.compose_title_unit(self.hist.GetXaxis().GetTitle())
@@ -1579,150 +1693,39 @@ class hyperEmg(FitMethods):
 		# Definition of contrib factors: 
 		# if not simultaneous: n-1 factors for n components. (+1 contrib for constant background)
 		# else: only k-1 variables if k is the sum of both positive and negative dimensions
-		if not simultaneous:
-			n_components = n_comps * (dimensions[0] + dimensions[1]) - 1
-		else:
+		if simultaneous:
 			n_components = (dimensions[0] + dimensions[1]) - 1
+		else:
+			n_components = n_comps * (dimensions[0] + dimensions[1]) - 1
 		for i in range(0,n_components,1):
 			var_name = f"contrib{i}"
-			self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
+			# self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
 		
 		# Check for fixed parameters from limits passed
-		params = self.__build_params(self.limits)
+		self.__build_params(self.limits)
 
-		# Build one PDF per component, consisting of contributions of different exponetially modified gaussian distributions
-		for j in range(len(self.states)):
-			pdf_name = f"comp{j}"
-			# Start by building the PDF function string
-			funct = self.build_function_string(dimensions=dimensions, params=params, state = self.states[j])
-			print(f'--> Function String: {funct}')
-			# Build RooArgList iteratively depending on which parameters are fixed
-			listofRooArgs = RooArgList()
-			listofRooArgs.add(self.RooRealVar_dict['x'])
-			print("--> Add RooArg: 'x'")
-			# Add gaussian center
-			mu = self.states[j]["peak"]
-			listofRooArgs.add(self.RooRealVar_dict[mu])
-			print(f"--> Add RooArg: '{mu}'")
-			#
-			listofRooArgs.add(self.RooRealVar_dict['sigma'])
-			print(f"--> Add RooArg: 'sigma'")
-			# 
-			contrib_idx = 0
-			for i in range(dimensions[0]):
-				tau = f"ntau{i}"
-				listofRooArgs.add(self.RooRealVar_dict[f"ntau{i}"])
-				print(f"--> Add RooArg: '{tau}'")
-				if dimensions[0]+dimensions[1] != 1 and contrib_idx < dimensions[0]+dimensions[1] - 1:
-					listofRooArgs.add(self.RooRealVar_dict[f"contrib{contrib_idx}"])
-					print(f"--> Add RooArg: 'contrib{contrib_idx}'")
-					contrib_idx += 1
-			for i in range(dimensions[1]):
-				tau = f"ptau{i}"
-				listofRooArgs.add(self.RooRealVar_dict[f"ptau{i}"])
-				print(f"--> Add RooArg: '{tau}'")
-				if dimensions[0]+dimensions[1] != 1 and contrib_idx < dimensions[0]+dimensions[1] - 1:
-					listofRooArgs.add(self.RooRealVar_dict[f"contrib{contrib_idx}"])
-					print(f"--> Add RooArg: 'contrib{contrib_idx}'")
-					contrib_idx += 1
-			# Reset contrib_idx counter of contribution ratios are to be kept the same for multiple peaks
-			if simultaneous:
-				contrib_idx = 0
+		# Build all component pdfs where the contribution mixing is done within the generic PDF, not in the RooAddPdf
+		self.build_RooGenericPdf_dict()
 
-			state = 'mu0'
-			if self.states[j]["state"] != 'gs':
-				E = self.states[j]["peak"]+"-"+self.states[j]["state"]
-				listofRooArgs.add(self.RooRealVar_dict[E])
-				print(f"--> Add RooArg: '{E}'")
-			#
-				state = E
+		# Alternative: build all components where the contributions are mixed on the RooAddPdf level
+		# self.build_final_hyperEMGpdfs()
 
-			self.RooGenericPdf_dict[pdf_name] = RooGenericPdf(pdf_name,pdf_name,funct,listofRooArgs)
-			
-			# if state == 'mu0':
-			# 	self.RooGenericPdf_dict[pdf_name] = ROOT.hyperEMG12(pdf_name, pdf_name, 
-			# 		self.RooRealVar_dict[f"x"],
-			# 		self.RooRealVar_dict[f"{state}"],
-			# 		self.RooRealVar_dict[f"ntau0"],
-			# 		self.RooRealVar_dict[f"ptau0"],
-			# 		self.RooRealVar_dict[f"ptau1"],
-			# 		self.RooRealVar_dict[f"sigma"],
-			# 		self.RooRealVar_dict[f"contrib0"],
-			# 		self.RooRealVar_dict[f"contrib1"],
-			# 	)
-			# else:
-			# 	self.RooGenericPdf_dict[pdf_name] = ROOT.hyperEMG12ex(pdf_name, pdf_name, 
-			# 		self.RooRealVar_dict[f"x"],
-			# 		self.RooRealVar_dict[f"mu0"],
-			# 		self.RooRealVar_dict[f"{state}"],
-			# 		self.RooRealVar_dict[f"ntau0"],
-			# 		self.RooRealVar_dict[f"ptau0"],
-			# 		self.RooRealVar_dict[f"ptau1"],
-			# 		self.RooRealVar_dict[f"sigma"],
-			# 		self.RooRealVar_dict[f"contrib0"],
-			# 		self.RooRealVar_dict[f"contrib1"],
-			# 	)
-			#
-			# Build component ratios
-			if j < (n_comps-1): 
-				var_name = f"ratio{j}"
-				print(f"--> Add RooArg: 'ratio{j}'")
-				self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
-			#
-			j += 1
-
-		# Add constant background
-		# self.RooRealVar_dict['bck'] = RooRealVar('bck', 'bck', self.limits['bck'][0], self.limits['bck'][1], self.limits['bck'][2])
-		# listofRooArgs = RooArgList()
-		# listofRooArgs.add(self.RooRealVar_dict['bck'])
-		# print(f"--> Add RooArg: 'bck'")
-		# self.RooGenericPdf_dict['background'] = RooGenericPdf('background','background','@0',listofRooArgs)
-		# var_name = f"ratio{n_comps-1}"
-		# self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
-
-		# Put all pdfs together
+		# # #Put all pdfs together
 		all_pdfs = RooArgList()
 		for pdf in self.RooGenericPdf_dict:
 			all_pdfs.add(self.RooGenericPdf_dict[pdf])
+
 		# put all ratio's together
 		all_ratios = RooArgList()
 		for var in self.RooRealVar_dict:
 			m = re.search('ratio*', var)
 			if m:
 				all_ratios.add(self.RooRealVar_dict[var])
+
 		# Definition hyper-EMG
-		# self.this_pdf = RooAddPdf('hyperEmg', 'hyperEmg', all_pdfs, all_ratios, recursiveFraction = ROOT.kFALSE)
+
 		self.this_pdf = RooAddPdf('hyperEmg', 'hyperEmg', all_pdfs, all_ratios, recursiveFraction = ROOT.kFALSE)
-		# self.this_pdf = RooAddPdf('hyperEmg', 'hyperEmg', RooArgList(self.psEmg, self.nsEmg), RooArgList(self.emgratio))
 	
-		# Define categories to distinguish between different files in case multiple files are to be fitted simulaneuously
-		# sample = ROOT.RooCategory("sample", "sample")
-		# # sample.defineType("File1")
-		# # sample.defineType("File2")
-
-		# # Construct combined dataset in (x,sample)
-		# datahist = ROOT.RooDataHist(
-		# 	"physics",
-		# 	"physics",
-		# 	RooArgList(self.RooRealVar_dict['x']),
-		# 	ROOT.RooFit.Index(sample),	
-		# 	# self.hist,
-		# 	# ROOT.std.map("physics, self.hist")(),
-		# 	ROOT.RooFit.Import("File1", self.hist),
-		# )
-
-		# # Construct a simultaneous pdf in (x, sample)
-		# # -----------------------------------------------------------------------------------
-		 
-		# # Construct a simultaneous pdf using category sample as index
-		# self.this_pdf = ROOT.RooSimultaneous("simPdf", "simultaneous pdf", sample)
-		 
-		# # Associate model with the physics state and model_ctl with the control
-		# # state
-		# self.this_pdf.addPdf(pdf, "File1")
-
-		# simPdf.fitTo(datahist)
-
 		#
 		self.roodefs = [self.this_pdf, self.RooRealVar_dict, self.RooGenericPdf_dict]
 		if minos: 
@@ -1730,7 +1733,7 @@ class hyperEmg(FitMethods):
 		else:
 			self.this_roohist, self.fit_results = self.minimize(self.hist, self.xmin, self.xmax, datatype='is_th1d', minos = ROOT.kFALSE)
 
-		# THIS LINE HAS TO BE HERE FOR SOME UNKNOW REASON TO ME TO AVOID A SEG FAULT IN THE PLOT FUNCTION GOD KNOWS WHY I REALLY DON'T KNOW ANYMORE...
+		# THIS LINE HAS TO BE HERE FOR SOME UNKNOW REASON TO ME TO AVOID A SEG FAULT IN THE PLOT FUNCTION 
 		print(self.this_pdf.getVal(ROOT.RooArgSet(self.RooRealVar_dict['x'])))
 
 		# Calculate numerical position of maximum and FWHM
