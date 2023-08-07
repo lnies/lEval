@@ -672,7 +672,7 @@ class FitToDict:
         #
         return self.fit
 
-    def get_val(self, key, value = None):
+    def get_val(self, key, value = 'value'):
         '''
         Returns value either from meta-data dictionary or from the data frames
         Parameters:
@@ -960,8 +960,14 @@ class MRToFUtils(NUBASE):
         # TG1 = tof - F1 - MCP
         # self.a1 = ((TG1 * int(self.revN2) / int(nrevs)) + F1 + MCP - self.b1) / np.sqrt(m) / 1e3 # calculate a1 from absolute ToF and convert to micro-seconds 
         if nrevs != 0:
+            # if only one tof is passed
             m0 = self.m0
             tof0 = self.calc_ToF(m0, nrevs)
+            # otherwise
+            if new_m0 is not None:
+                m0 = new_m0
+                tof0 = new_tof0
+            #    
             self.revN2 = nrevs
             self.a1, self.b1 = self.__calc_tof_params(m0, new_m1, tof0, new_tof1)
         else:
@@ -1057,9 +1063,9 @@ class MRToFIsotope(MRToFUtils):
     def __store_tofs(self, file_isotope='', file_ref1='', file_ref2='',
                         t_isotope='', t_ref1='', t_ref2='',
                         t_isotope_err='', t_ref1_err='', t_ref2_err='',
-                        q=1, q1=1, q2=1,
                         centroid = 'mu0', online_ref = '', online_ref2 = '', tweak_tofs = [0,0,0],
                         is_doublet = False, dt = '', dt_err = '',
+                        q=1, q1=1, q2=1,
                         ):
         """
         Stores information passed to calc_mass or calc_exc_energy and loads fit files if passed
@@ -1192,8 +1198,12 @@ class MRToFIsotope(MRToFUtils):
             - print_results: prints short formatted results of calculation
         '''
         # Store ToFs
-        self.__store_tofs(file_isotope, file_ref1, file_ref2,t_isotope, t_ref1, t_ref2, t_isotope_err, 
-                            t_ref1_err,  t_ref2_err, q, q1, q2, centroid, online_ref, online_ref2, tweak_tofs)
+        self.__store_tofs(file_isotope=file_isotope, file_ref1=file_ref1, file_ref2=file_ref2,
+                        t_isotope=t_isotope, t_ref1=t_ref1, t_ref2=t_ref2,
+                        t_isotope_err=t_isotope_err, t_ref1_err=t_ref1_err, t_ref2_err=t_ref2_err,
+                        q = q, q1 = q1, q2 = q2,
+                        centroid = centroid, online_ref = online_ref, online_ref2 = online_ref2,
+                        tweak_tofs = tweak_tofs)
         #
         self.C_tof = self.calc_C_ToF(self.isotope_gs_t, self.ref1_t, self.ref2_t)
         self.C_tof_err = self.calc_C_ToF_err(t=self.isotope_gs_t, t_err=self.isotope_gs_t_err,
@@ -1605,7 +1615,7 @@ class TOFPlot():
             self.ax = ax
 
     def add_isobar_line(self, vline, text,
-                        external = False, fig = None, ax = None,):
+                        external = False, fig = None, ax = None, linezorder = 1):
         """
         Add vline to axis
         """
@@ -1615,9 +1625,9 @@ class TOFPlot():
         else:
             fig, ax = self.fig, self.ax
         #
-        ax.axvline(vline, c='black', linewidth=1, zorder=1, ls = '--')
-        ax.text(vline, 0.9, text, rotation=90, bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'), 
-            transform =ax.get_xaxis_transform(),
+        ax.axvline(vline, c='black', linewidth=1, zorder=linezorder, ls = '--')
+        ax.text(vline, 0.85, text, rotation=90, bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'), 
+            transform =ax.get_xaxis_transform(), zorder = linezorder,
             horizontalalignment='center',
             verticalalignment='center',
             fontsize=8,
@@ -1680,8 +1690,8 @@ class Peaks(TOFPlot):
         #
         TOFPlot.__init__(self, df_file)
 
-    def find_peaks(self, bins=10, peak_threshold = None, peak_min_distance = None, peak_min_height = None, peak_width_inbins = None, 
-                   peak_prominence = None, peak_wlen = None):
+    def find_peaks(self, bins=10, peak_threshold = None, peak_min_distance = 250, peak_min_height = 1, peak_width_inbins = 20, 
+                   peak_prominence = 50, peak_wlen = None):
         """  
         Arguments:
             - bins: Rebinning for faster peak finding
@@ -1701,10 +1711,10 @@ class Peaks(TOFPlot):
         # Do the peak finding
         self.x_proj_peaks, self.peaks_info = sc.signal.find_peaks(x_proj_for_pfind, 
                                              threshold=peak_threshold, # Required vertical distance to its direct neighbouring samples, pretty useless
-                                             distance=peak_min_distance, # dinstance in samples, not in value! changes when rebinned! 
-                                             height=peak_min_height,
-                                             width=peak_width_inbins,
-                                             prominence=peak_prominence,
+                                             distance=peak_min_distance/bins, # dinstance in samples, not in value! changes when rebinned! 
+                                             height=peak_min_height*bins,
+                                             width=peak_width_inbins/bins,
+                                             prominence=peak_prominence/bins,
                                              wlen=peak_wlen)
         # Calculate some additional meta data for the found peaks
         self.n_peaks = len(self.x_proj_peaks)
@@ -1751,7 +1761,7 @@ class Peaks(TOFPlot):
     def plot(self, bins = 10, lines = True, focus=False, log=False, silent = False, 
             fs_labels = 25, fs_ticks = 20, figsize = (8.6,6), xlim = None, ylim = None, legend = False,
             save = False, path_to_file = "peaks", style = 'hist', add_vlines = [],
-            histalpha = 0.5, histlw = 2, fitzorder = 2, histzorder = 1,
+            histalpha = 0.5, histlw = 2, fitzorder = 2, histzorder = 1, linezorder = 2,
             external = False, fig = None, ax = None):
         '''
         Plot 1D Histogram with found peaks.
@@ -1769,7 +1779,11 @@ class Peaks(TOFPlot):
         #
         if self.n_peaks == 0:
             print("Not peaks, no plots :)")
-            return 0 
+            return 0
+        # external plot
+        if external:
+            self.fig, self.ax = fig, ax
+
         # Create plot
         self.create_hist1d(style=style,bins=bins, log=log,
                             fs_labels = fs_labels, fs_ticks = fs_ticks, figsize = figsize, ylim = ylim,
@@ -1811,10 +1825,10 @@ class Peaks(TOFPlot):
         if len(self.vlines) != 0:
             #
             for vline,text in zip(self.vlines, self.vlines_text):
-                self.add_isobar_line(vline,text)
+                self.add_isobar_line(vline,text, linezorder=linezorder)
             # Rescale y axis
             ylims = self.ax.get_ylim()
-            self.ax.set_ylim(ylims[0], ylims[1]*5)
+            self.ax.set_ylim(ylims[0], ylims[1]*10)
 
 
         if not external:
@@ -1836,7 +1850,9 @@ class Peaks(TOFPlot):
             plt.savefig(path_to_file, dpi=300)
             # plt.clf()
    
-    def plot2d(self, x_bins=20, hist2d_y_bins = 100, y_bins=10, focus=-1, log=False, figsize=(12,7)):
+    def plot2d(self, x_bins=20, hist2d_y_bins = 100, y_bins=10, focus=-1, log=False, figsize=(12,7),
+                linezorder = 2,
+        ):
         """
         Plot 2D Histogram with found peaks.
         """
@@ -1872,7 +1888,7 @@ class Peaks(TOFPlot):
         if len(self.vlines) != 0:
             #
             for vline,text in zip(self.vlines, self.vlines_text):
-                self.add_isobar_line(vline,text, external=True, fig=fig, ax=ax_x)
+                self.add_isobar_line(vline,text, external=True, fig=fig, ax=ax_x, linezorder=linezorder)
             # Rescale y axis
             ylims = ax_x.get_ylim()
             ax_x.set_ylim(ylims[0], ylims[1]*5)
