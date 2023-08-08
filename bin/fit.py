@@ -120,20 +120,6 @@ class FitMethods(TOFPlot):
 		# 	    for key in self.meta_data_keys:
 		# 		    mapped_file.seek(mapped_file.find(f'{key}'.encode('ascii')))
 		# 		    self.meta_data[key] = mapped_file.readline().strip('\r\n'.encode('ascii')).decode('ascii')
-
-	def compose_title_unit(self, xtitle):
-		"""
-		Compose label and unit of RooRealVar by using the X or Y Axis Label of the ROI histogram.
-		:param xtitle:
-		:return:
-		"""
-		if '/' in xtitle:
-			logging.info('xtitle = {}'.format(xtitle.split('/')[0]))
-			self.rootitle = xtitle.split('/')[0]
-			self.roounit = xtitle.split('/')[-1]
-		else:
-			self.rootitle = xtitle
-			self.roounit = 'a.u.'
 		
 	def minimize(self, data, xmin, xmax, datatype = 'is_th1d', minos = ROOT.kTRUE):
 		"""
@@ -184,8 +170,11 @@ class FitMethods(TOFPlot):
 		else:
 			roohist = data
 
+		roodatahist = RooDataHist("data", "data", x, data);
+
+
 		# Do fit
-		result_mlkh = fitmodel.fitTo(roohist,
+		result_mlkh = fitmodel.fitTo(roodatahist,
 											RooFit.Range(ranges),
 											# RooFit.NormRange(f"win_{self.roodefs[0].GetName()}"),
 											RooFit.Minos(minos),
@@ -711,7 +700,7 @@ class FitMethods(TOFPlot):
 				i_contrib += 1 
 				#
 
-        # add vlines
+		# add vlines
 		for vline in add_vlines:
 			ax.axvline(vline-tof_zero, c='blue', linewidth=1, zorder=3, ls = '--')
 		
@@ -1151,7 +1140,7 @@ class hyperEmg(FitMethods):
 		# isomeric states
 		self.pos_funct_on_gs = '1/(2*@3)*exp((@2/(TMath::Sqrt(2)*@3))^2-(@0-(@1+@4))/@3)*TMath::Erfc(@2/(TMath::Sqrt(2)*@3)-(@0-(@1+@4))/(TMath::Sqrt(2)*@2))'
 		self.neg_funct_on_gs = '1/(2*@3)*exp((@2/(TMath::Sqrt(2)*@3))^2+(@0-(@1+@4))/@3)*TMath::Erfc(@2/(TMath::Sqrt(2)*@3)+(@0-(@1+@4))/(TMath::Sqrt(2)*@2))'
-		self.params = []
+		self.params = {}
 		self.simultaneous = False
 		# Wikipedia definition
 		# self.pos_funct = '1/(2*@3)*exp(1/(2*@3)*(2*@1+(1/@3)*@2^2-2*@0))*TMath::Erfc((@1+(1/@3)*@2^2-@0)/(TMath::Sqrt(2)*@2))'
@@ -1210,7 +1199,7 @@ class hyperEmg(FitMethods):
 		#
 		return f'{R}*1/(2*{c3})*exp(({c2}/(1.4142*{c3}))^2{pol}({c0}-{c1})/{c3})*TMath::Erfc({c2}/(1.4142*{c3}){pol}({c0}-{c1})/(1.4142*{c2}))'
 
-	def build_function_string(self, dimensions = [0,1], params = {}, state = {}):
+	def build_function_string(self, dimensions = [0,1], params = {}, state = {}, position_mu = '1'):
 		#
 		funct = ''
 		comp = 0
@@ -1238,15 +1227,15 @@ class hyperEmg(FitMethods):
 
 			# Define mu and/or excitation energy E
 			if state['state'] == 'gs':
-				mu = '@1'
+				mu = '@'+position_mu
 
 			# If to be fitted as excitation energy
 			elif state["state"] != 'gs':
 				position_of_exc_parameter = int(2*(dimensions[0]+dimensions[1])-1 + 3)
-				mu = f"(@1+@{position_of_exc_parameter})"
+				mu = f"(@{position_mu}+@{position_of_exc_parameter})"
 
 			else:
-				mu = '@1'
+				mu = '@'+position_mu
 			# Build function
 			funct += self.function_string(c1 = mu, c2 = sigma, c3=ntau, R=f"{contrib}", pol="+")+ "+"
 			comp+=1
@@ -1269,15 +1258,15 @@ class hyperEmg(FitMethods):
 			
 			# Define mu and/or excitation energy E
 			if state['state'] == 'gs':
-				mu = '@1'
+				mu = '@'+position_mu
 
 			# If to be fitted as excitation energy
 			elif state["state"] != 'gs':
 				position_of_exc_parameter = int(2*(dimensions[0]+dimensions[1])-1 + 3)
-				mu = f"(@1+@{position_of_exc_parameter})"
+				mu = f"(@{position_mu}+@{position_of_exc_parameter})"
 			
 			else:
-				mu = '@1'
+				mu = f'@{position_mu}'
 			# Builf function
 			funct += self.function_string(c1 = mu, c2 = sigma, c3=ptau, R=f"{contrib}", pol="-")+ "+"
 			comp+=1
@@ -1615,6 +1604,46 @@ class hyperEmg(FitMethods):
 		#
 		# j += 1
 
+	def build_master_string(self, dimensions = [0,1], params = {}, state = {}):
+		""" 
+		Method that builds a string from n components and all dimensions simultaneously 
+		"""
+		# add roo vars to dict
+
+
+
+		#
+		if self.n_comps == 1:
+			return self.build_function_string(dimensions=self.dimensions, params=self.params, state = self.states[0], position_mu = '1')
+		#
+		n_emg = 3 + 2 * (dimensions[0]+dimensions[1]-1)
+		n_vars = 3 + 2 * (dimensions[0]+dimensions[1]-1) + 2 * (self.n_comps-1) # 3 variables for base EMG plus two per every extra EMG plus two for every extra hyperEMG
+		#
+
+		string = f""
+
+		print(self.states)
+
+		for i in np.arange(1,len(self.states)+1,1):
+
+			position_mu = '1' if i==1 else str(n_emg+2*(i-1)-1)
+
+			hyperEMG_string = self.build_function_string(dimensions=self.dimensions, params=self.params, state = self.states[i-1], position_mu = position_mu)
+
+			if i < self.n_comps:
+				contrib = f"@{n_emg+2*i}"
+			if i == self.n_comps:
+				contrib = '(1-'
+				#
+				for j in np.arange(1,len(self.states),1):
+					contrib+=f"@{n_emg+2*j}-"
+				#
+				contrib = contrib[:-1] + ")"
+				
+			string += f"{contrib}*{hyperEMG_string}+"
+
+		return string[:-1]
+
 	def call_pdf(self, xmin, xmax, dimensions = [1,2], n_comps = 1, simultaneous = False, 
 				bins = 1, limits=False, minos = ROOT.kFALSE):
 		"""
@@ -1639,8 +1668,6 @@ class hyperEmg(FitMethods):
 		self.n_comps = n_comps
 		self.simultaneous = simultaneous
 		self.hist = self.lst2roothist(self.lst_file, bins=1)
-
-		self.compose_title_unit(self.hist.GetXaxis().GetTitle())
 
 		# Initialize limits
 		if not limits:
@@ -1705,10 +1732,14 @@ class hyperEmg(FitMethods):
 		self.__build_params(self.limits)
 
 		# Build all component pdfs where the contribution mixing is done within the generic PDF, not in the RooAddPdf
-		self.build_RooGenericPdf_dict()
+		# self.build_RooGenericPdf_dict()
 
 		# Alternative: build all components where the contributions are mixed on the RooAddPdf level
 		# self.build_final_hyperEMGpdfs()
+
+		# Alternative 2: build very long function string and not use any RooAddPdf
+
+		funct = self.build_master_string(dimensions=dimensions)
 
 		# # #Put all pdfs together
 		all_pdfs = RooArgList()
@@ -1724,8 +1755,103 @@ class hyperEmg(FitMethods):
 
 		# Definition hyper-EMG
 
-		self.this_pdf = RooAddPdf('hyperEmg', 'hyperEmg', all_pdfs, all_ratios, recursiveFraction = ROOT.kFALSE)
-	
+		# self.this_pdf = RooAddPdf('hyperEmg', 'hyperEmg', all_pdfs, all_ratios, recursiveFraction = ROOT.kFALSE)
+		
+
+
+		for d in range(self.dimensions[0]+self.dimensions[1]-1): 
+			var_name = f"contrib{d}"
+			self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
+
+		for j in range(self.n_comps-1): 
+			var_name = f"ratio{j}"
+			self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
+
+
+		# Build RooArgList iteratively depending on which parameters are fixed
+		listofRooArgs = RooArgList()
+		listofRooArgs.add(self.RooRealVar_dict['x'])
+		print("--> Add RooArg: 'x'")
+		# Add gaussian center
+		listofRooArgs.add(self.RooRealVar_dict['mu0'])
+		print(f"--> Add RooArg: 'mu0'")
+		#
+		listofRooArgs.add(self.RooRealVar_dict['sigma'])
+		print(f"--> Add RooArg: 'sigma'")
+		# 
+		contrib_idx = 0
+		for i in range(self.dimensions[0]):
+			tau = f"ntau{i}"
+			listofRooArgs.add(self.RooRealVar_dict[f"ntau{i}"])
+			print(f"--> Add RooArg: '{tau}'")
+			if self.dimensions[0]+self.dimensions[1] != 1 and contrib_idx < self.dimensions[0]+self.dimensions[1] - 1:
+				listofRooArgs.add(self.RooRealVar_dict[f"contrib{contrib_idx}"])
+				print(f"--> Add RooArg: 'contrib{contrib_idx}'")
+				contrib_idx += 1
+		for i in range(self.dimensions[1]):
+			tau = f"ptau{i}"
+			listofRooArgs.add(self.RooRealVar_dict[f"ptau{i}"])
+			print(f"--> Add RooArg: '{tau}'")
+			if self.dimensions[0]+self.dimensions[1] != 1 and contrib_idx < self.dimensions[0]+self.dimensions[1] - 1:
+				listofRooArgs.add(self.RooRealVar_dict[f"contrib{contrib_idx}"])
+				print(f"--> Add RooArg: 'contrib{contrib_idx}'")
+				contrib_idx += 1
+
+		i = 0
+		for state in self.states:
+
+			if i == 0: 
+				i+= 1
+				continue
+
+			mu = self.states[i]["peak"]
+			listofRooArgs.add(self.RooRealVar_dict[mu])
+			print(f"--> Add RooArg: '{mu}'")
+
+			ratiostring = f'ratio{i-1}'
+			listofRooArgs.add(self.RooRealVar_dict[ratiostring])
+			print(f"--> Add RooArg: '{ratiostring}'")
+			
+			i+= 1
+
+		# # Initial guesses and fit range
+		# mu0_init = 47638176 # ns
+		# mu1_init = 47638176 + 5500 # ns
+		# # mu0_init = 55445260 # ns
+		# # mu1_init = 55445260 + 2000 # ns
+		# xmin = mu0_init - 250 # ns
+		# xmax = mu1_init + 250 # ns
+		# self.xmin = mu0_init - 250 # ns
+		# self.xmax = mu1_init + 250 # ns
+
+
+		# # Create variables to be fitted
+		# self.RooRealVar_dict['x'] = RooRealVar("x", "x", xmin, xmax, 'ns') # range of x given by fit range
+		# # x.setRange('x-range', xmin, xmax)
+
+		# mu0_var = RooRealVar("mu0", "mu0", mu0_init, mu0_init-500, mu0_init+500, 'ns')
+		# mu1_var = RooRealVar("mu1", "mu1", mu1_init, mu1_init-500, mu1_init+500, 'ns')
+		# sigma_var = RooRealVar("sigma", "sigma", 40, 10, 100, 'ns')
+		# ntau0_var = RooRealVar("ntau0", "ntau0", 30, 10, 100, 'ns') 
+		# ptau0_var = RooRealVar("ptau0", "ptau0", 50, 10, 250, 'ns')
+		# ptau1_var = RooRealVar("ptau1", "ptau1", 300, 250, 500, 'ns')
+		# contrib0_var = RooRealVar("contrib0", "contrib0", 0.5, 0.01, 0.99, '%')
+		# contrib1_var = RooRealVar("contrib1", "contrib1", 0.5, 0.01, 0.99, '%')
+		# ratio_var = RooRealVar("ratio", "ratio", 0.5, 0.01, 0.99, '%')
+
+		# longarglist = RooArgList(self.RooRealVar_dict['x'], mu0_var, sigma_var, ntau0_var, contrib0_var, ptau0_var, contrib1_var, ptau1_var)
+		# longarglist.add(mu1_var)
+		# longarglist.add(ratio_var)
+
+		# hyperEMG12_string = '@4*1/(2*@3)*exp((@2/(1.4142*@3))^2+(@0-@1)/@3)*TMath::Erfc(@2/(1.4142*@3)+(@0-@1)/(1.4142*@2))+@6*1/(2*@5)*exp((@2/(1.4142*@5))^2-(@0-@1)/@5)*TMath::Erfc(@2/(1.4142*@5)-(@0-@1)/(1.4142*@2))+(1-@4-@6)*1/(2*@7)*exp((@2/(1.4142*@7))^2-(@0-@1)/@7)*TMath::Erfc(@2/(1.4142*@7)-(@0-@1)/(1.4142*@2))'
+		# hyperEMG12_string2 = '@4*1/(2*@3)*exp((@2/(1.4142*@3))^2+(@0-@8)/@3)*TMath::Erfc(@2/(1.4142*@3)+(@0-@8)/(1.4142*@2))+@6*1/(2*@5)*exp((@2/(1.4142*@5))^2-(@0-@8)/@5)*TMath::Erfc(@2/(1.4142*@5)-(@0-@8)/(1.4142*@2))+(1-@4-@6)*1/(2*@7)*exp((@2/(1.4142*@7))^2-(@0-@8)/@7)*TMath::Erfc(@2/(1.4142*@7)-(@0-@8)/(1.4142*@2))'
+		# fitmodel_string = '@9*('+hyperEMG12_string+")+(1-@9)*("+hyperEMG12_string2+")"
+
+
+
+		self.this_pdf = RooGenericPdf('hyperEmg', 'hyperEmg', funct, listofRooArgs)
+
+
 		#
 		self.roodefs = [self.this_pdf, self.RooRealVar_dict, self.RooGenericPdf_dict]
 		if minos: 
