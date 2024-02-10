@@ -20,7 +20,7 @@ import math
 import time
 import mmap
 
-from utilities import FitToDict
+from utilities import FitToDict, custom_colors
 
 def simple_error_plt(y, y_err, x='', x_labels='', \
 					 label = ["ISOLTRAP"], x_label='', y_label=[''], title='', \
@@ -132,9 +132,9 @@ def simple_error_plt(y, y_err, x='', x_labels='', \
 				twins[ref_axis-1].plot(x_plot, [ref_value for value in x_plot], color='grey', zorder = 1)
 
 
-	# h_lines
-	# if len(hlines) != 0:
-	# 	for line in h_lines:
+	if len(h_lines) != 0:
+		for line in h_lines:
+			ax.axhline(line)
 
 
 
