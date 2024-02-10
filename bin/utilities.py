@@ -7,12 +7,6 @@ Modified by Lukas.Nies@cern.ch on 04/02/2021
 @license: MIT
 """
 
-import ROOT
-from ROOT import RooFit
-from ROOT import RooRealVar, RooArgSet, RooArgList, RooDataHist
-from ROOT import RooGenericPdf, RooUniform, RooGaussian, RooGaussModel, RooDecay, RooFormulaVar
-from ROOT import RooAddPdf, RooMCStudy
-from ROOT import Math as RootMath 
 import datetime
 import pandas as pd
 import numpy as np
@@ -895,7 +889,7 @@ class MRToFUtils(NUBASE):
 
     def __calc_tof_params(self, m0, m1, tof0, tof1):
         """
-        calculates the ToF parameters based on tofs and masses of two calibrants
+        calculates the ToF parameters at a certain nrevs based on tofs and masses of two calibrants
         """
         a = (tof0-tof1)/(math.sqrt(m0)-math.sqrt(m1))
         b = tof0 - a * math.sqrt(m0)
@@ -952,7 +946,7 @@ class MRToFUtils(NUBASE):
             tof = F1 + MCP
         return tof
 
-    def recalibrate_tof(self, new_m1, new_tof1, nrevs, new_m0 = False, new_tof0 = False):
+    def recalibrate_tof(self, new_m1, new_tof1, nrevs, new_m0 = None, new_tof0 = None):
         """
         Receives ToF of a known mass at nrevs and recalculates the a1 parameter
         """
@@ -972,10 +966,27 @@ class MRToFUtils(NUBASE):
             self.a1, self.b1 = self.__calc_tof_params(m0, new_m1, tof0, new_tof1)
         else:
             # If shooting through is recaclibrated, recalculate a0 and b0
-            if new_m0 and new_tof0:
+            if new_m0 is not None and new_tof0 is not None:
                 self.a0, self.b0 = self.__calc_tof_params(new_m0, new_m1, new_tof0, new_tof1)
             else:
                 self.a0, self.b0 = self.__calc_tof_params(self.m0, new_m1, self.tofm0_0, new_tof1)
+
+    def calc_wm(self, data, data_err):
+        """
+        Calculates the weighted mean with its uncertainty. 
+        This model is to be uesd only when the data is normal distributed and so is its uncertainty.
+        """
+        # weighted mean error
+        wm_err = np.power( np.sum( 1/np.power(data_err,2) ), -1/2 )
+        # weighted mean
+        wm = wm_err**2 * np.sum( data/np.power(data_err,2) )
+        # 95% confidence interval, if the weighted mean is normal distributed 
+        wm_95_intvl = [wm - 1.96*wm_err, wm + 1.96*wm_err]
+        # Calculated birge ratio
+        rbirge = np.sqrt( 1 / (len(data)-1) * np.sum( np.power( data - wm ,2)  / np.power(data_err,2) ) ) 
+        
+        #
+        return wm, wm_err, wm_95_intvl, rbirge
 
 class MRToFIsotope(MRToFUtils):
     '''
@@ -1063,7 +1074,7 @@ class MRToFIsotope(MRToFUtils):
     def __store_tofs(self, file_isotope='', file_ref1='', file_ref2='',
                         t_isotope='', t_ref1='', t_ref2='',
                         t_isotope_err='', t_ref1_err='', t_ref2_err='',
-                        centroid = 'mu0', online_ref = '', online_ref2 = '', tweak_tofs = [0,0,0],
+                        centroid = 'mu0', online_ref = None, online_ref2 = None, tweak_tofs = [0,0,0],
                         is_doublet = False, dt = '', dt_err = '',
                         q=1, q1=1, q2=1,
                         ):
@@ -1114,11 +1125,11 @@ class MRToFIsotope(MRToFUtils):
             return -1
         #
         self.file_ref1 = file_ref1
-        if file_ref1 != '' and t_ref1 == '' and online_ref == '':
+        if file_ref1 != '' and t_ref1 == '' and online_ref is None:
             self.ref1_fit = FitToDict(file_ref1)
             self.ref1_t = float(self.ref1_fit.get_val('mu0', 'value')) + tweak_tofs[1]
             self.ref1_t_err = float(self.ref1_fit.get_val('mu0', 'error'))
-        elif file_isotope != '' and file_ref1 != '' and t_ref1 == '' and online_ref != '':
+        elif file_isotope != '' and file_ref1 != '' and t_ref1 == '' and online_ref is not None:
             self.ref1_t = float(self.isotope_fit.get_val(online_ref, 'value')) + tweak_tofs[1]
             self.ref1_t_err = float(self.isotope_fit.get_val(online_ref, 'error'))
         elif file_ref1 == '' and t_ref1 != '' and t_ref1_err != '':
@@ -1130,11 +1141,11 @@ class MRToFIsotope(MRToFUtils):
                 return
         #
         self.file_ref2 = file_ref2
-        if file_ref2 != '' and t_ref2 == '':
+        if file_ref2 != '' and t_ref2 == '' and online_ref2 is None:
             self.ref2_fit = FitToDict(file_ref2)
             self.ref2_t = float(self.ref2_fit.get_val('mu0', 'value')) + tweak_tofs[2]
             self.ref2_t_err = float(self.ref2_fit.get_val('mu0', 'error'))
-        elif file_isotope != '' and file_ref2 != '' and t_ref2 == '' and online_ref2 != '':
+        elif file_isotope != '' and file_ref2 != '' and t_ref2 == '' and online_ref2 is not None:
             self.ref2_t = float(self.isotope_fit.get_val(online_ref2, 'value')) + tweak_tofs[2]
             self.ref2_t_err = float(self.isotope_fit.get_val(online_ref2, 'error'))
         elif file_ref2 == '' and t_ref2 != '' and t_ref2_err != '':
@@ -1183,7 +1194,7 @@ class MRToFIsotope(MRToFUtils):
                         t_isotope='', t_ref1='', t_ref2='',
                         t_isotope_err='', t_ref1_err='', t_ref2_err='',
                         q = 1, q1 = 1, q2 = 2,
-                        centroid = 'mu0', online_ref = '', online_ref2 = '',
+                        centroid = 'mu0', online_ref = None, online_ref2 = None,
                         tweak_tofs = [0,0,0],
                         print_results = False):
         '''
@@ -1570,7 +1581,7 @@ class TOFPlot():
             fig, ax = plt.subplots(nrows=1, ncols=1, figsize=figsize)
         # 
         # .mpa files are pre-binned, meaning they have a weight per ToF bin
-        # .lst files are not pre-binned, each evenet is saved in an individual line
+        # .lst files are not pre-binned, each event is saved in an individual line
         # need to descriminate against this 
         if filetype == 'mpa':
             weights = self.file.counts
@@ -1605,7 +1616,7 @@ class TOFPlot():
         ax.set_xlabel(f'Time-of-Flight (ns)', fontsize=fs_labels)
         ax.set_ylabel(f'Rolling sweep number', fontsize=fs_labels)
 
-        # Set ticks size 
+        # Set ticks size y9
         ax.tick_params(axis='both', which='major', labelsize=fs_ticks)
 
         # if external:
@@ -1633,7 +1644,7 @@ class TOFPlot():
             fontsize=8,
         )
 
-    def add_isobars(self, nrevs, A=None, iso_list=None):
+    def add_isobars(self, nrevs, A=None, iso_list=None, molecule=None):
         """
         Add vlines with calculated isobars to the plot
         """
@@ -1651,11 +1662,32 @@ class TOFPlot():
             return
 
         if A is not None:
-            for idx,row in self.utils.ame[self.utils.ame.A==A].iterrows():
-                vline = self.utils.calc_ToF(self.utils.get_value(f'{A}{row["element"]}', value='mass', state='gs'), nrevs)*1e3
-                self.vlines.append(vline)
-                self.vlines_text.append(f'{A}{row["element"]}')
-                # self.__add_isobar_line(vline, f'{A}{row["element"]}')
+            if molecule is None:
+                for idx,row in self.utils.ame[self.utils.ame.A==A].iterrows():
+                    vline = self.utils.calc_ToF(self.utils.get_value(f'{A}{row["element"]}', value='mass', state='gs'), nrevs)*1e3
+                    self.vlines.append(vline)
+                    self.vlines_text.append(f'{A}{row["element"]}')
+                    # self.__add_isobar_line(vline, f'{A}{row["element"]}')
+            else:
+                # Calculate base and molecular mass
+                split_string = re.split("(\\d+)",molecule)
+                mol_A=0
+                mol_mass = 0
+                for i in range(1, len(split_string)-1, 2):
+                    sub_A = int(split_string[i])
+                    sub_X = split_string[i+1]
+                    mol_A += sub_A
+                    mol_mass += self.utils.get_value(f"{sub_A}{sub_X}", value='mass', state='gs')
+                # now calculate total mass of molecule
+                for idx,row in self.utils.ame[self.utils.ame.A==int(A-mol_A)].iterrows():
+                    
+                    mass = self.utils.get_value(f'{int(A-mol_A)}{row["element"]}', value='mass', state='gs') 
+                    mass += mol_mass
+
+                    #
+                    vline = self.utils.calc_ToF(mass, nrevs)*1e3
+                    self.vlines.append(vline)
+                    self.vlines_text.append(f'{int(A-mol_A)}{row["element"]}{molecule}')
             return
 
     def add_clusters(self, isotope, nrange, nrevs):
@@ -1851,7 +1883,7 @@ class Peaks(TOFPlot):
             # plt.clf()
    
     def plot2d(self, x_bins=20, hist2d_y_bins = 100, y_bins=10, focus=-1, log=False, figsize=(12,7),
-                linezorder = 2,
+                linezorder = 2, lines = True, add_hlines = [],
         ):
         """
         Plot 2D Histogram with found peaks.
@@ -1879,7 +1911,7 @@ class Peaks(TOFPlot):
 
 
         # Bottom left: MCS6-like 2d histogram
-        self.create_hist2d(external=True, ax=ax_0, fig=fig, x_bins=1, y_bins=hist2d_y_bins)
+        self.create_hist2d(external=True, ax=ax_0, fig=fig, x_bins=x_bins, y_bins=hist2d_y_bins)
 
         # Top left: x-projection
         self.create_hist1d(external=True, ax=ax_x, fig=fig, style='hist', bins=x_bins, data='tof', log=log)
@@ -1906,13 +1938,19 @@ class Peaks(TOFPlot):
         #            data='counts',
         #            )
 
-        for i in range(self.n_peaks):
-            ax_0.axvline(self.pos[i], c='r', linewidth=1, zorder=3)
-            ax_x.axvline(self.pos[i], c='r', linewidth=1, zorder=3)
+        if lines:
+            for i in range(self.n_peaks):
+                ax_0.axvline(self.pos[i], c='r', linewidth=1, zorder=3)
+                ax_x.axvline(self.pos[i], c='r', linewidth=1, zorder=3)
         
         # Zoom in on found peaks
         if focus:
             ax_0.set_xlim(self.earliest_left_base-600, self.latest_right_base+600)
+
+        # add horizontal lines
+        for line in add_hlines:
+            ax_0.axhline(line, c='r', linewidth=1, zorder=3)
+            ax_y.axhline(line, c='r', linewidth=1, zorder=3)
 
 
         # #
@@ -2255,7 +2293,7 @@ class softCool(Peaks, ProcessorBase, TOFPlot):
         # Export the cooled df
         return self.coolfile
         
-    def plot2d(self, x_bins = 10, y_bins=1, focus=False, log=False, alpha=0.25, lw = 2, 
+    def plot2d(self, x_bins = 10, y_bins=500, focus=False, log=False, alpha=0.25, lw = 2, 
                figsize=(15,7), xlims=None, savefig=None):
         """
         Plot the 2d histograms to compare the corrected and not corrected values
@@ -2285,7 +2323,7 @@ class softCool(Peaks, ProcessorBase, TOFPlot):
         sweep = self.file.sweep
         # Plot unbinned and un-corrected data
         # ax0.plot(tof-self.tof, sweep, 'o', alpha=alpha, ms=2, label='unbinned data')
-        self.create_hist2d(external=True, ax=left_tof, df = self.file, fig=fig, x_bins=1, y_bins=y_bins, tof_offset=self.tof)
+        self.create_hist2d(external=True, ax=left_tof, df = self.file, fig=fig, x_bins=x_bins, y_bins=y_bins, tof_offset=self.tof)
 
         self.create_hist1d(external=True, ax=left_hist, df = self.file, fig=fig, style='hist', 
             bins=x_bins, data='tof', log=log, tof_offset=self.tof)
@@ -2299,7 +2337,7 @@ class softCool(Peaks, ProcessorBase, TOFPlot):
         # Plot corrected data
         tof = self.coolfile.tof
         sweep = self.coolfile.sweep
-        self.create_hist2d(external=True, ax=right_tof, df=self.coolfile, fig=fig, x_bins=1, y_bins=y_bins, tof_offset=self.tof)                
+        self.create_hist2d(external=True, ax=right_tof, df=self.coolfile, fig=fig, x_bins=x_bins, y_bins=y_bins, tof_offset=self.tof)                
         
         self.create_hist1d(external=True, ax=right_hist, df=self.coolfile, fig=fig, style='hist', 
             bins=x_bins, data='tof', log=log, tof_offset=self.tof)

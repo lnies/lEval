@@ -1501,6 +1501,7 @@ class hyperEmg(FitMethods):
 		#
 		for idx,row in self.fit.fit['RESULTS-TABLE'].iterrows():
 			if row['var'] in params_to_fix:
+				print(f"fixed {row['var']} from file")
 				self.limits[row['var']] = [row['value'], row['value'], row['value']]
 				self.params[row['var']] = row['value']
 
@@ -1628,6 +1629,8 @@ class hyperEmg(FitMethods):
 
 			position_mu = '1' if i==1 else str(n_emg+2*(i-1)-1)
 
+			if self.states[i-1]['state'] != 'gs': position_mu = '1'  
+
 			hyperEMG_string = self.build_function_string(dimensions=self.dimensions, params=self.params, state = self.states[i-1], position_mu = position_mu)
 
 			if i < self.n_comps:
@@ -1640,7 +1643,9 @@ class hyperEmg(FitMethods):
 				#
 				contrib = contrib[:-1] + ")"
 				
-			string += f"{contrib}*{hyperEMG_string}+"
+			string += f"{contrib}*({hyperEMG_string})+"
+
+		print(string[:-1])
 
 		return string[:-1]
 
@@ -1804,9 +1809,17 @@ class hyperEmg(FitMethods):
 				i+= 1
 				continue
 
-			mu = self.states[i]["peak"]
-			listofRooArgs.add(self.RooRealVar_dict[mu])
-			print(f"--> Add RooArg: '{mu}'")
+			if state['state'] == 'gs':
+				mu = self.states[i]["peak"]
+				listofRooArgs.add(self.RooRealVar_dict[mu])
+				print(f"--> Add RooArg: '{mu}'")
+
+			if state['state'] != 'gs':
+				E = self.states[i]["peak"]+"-"+self.states[i]["state"]
+				listofRooArgs.add(self.RooRealVar_dict[E])
+				print(f"--> Add RooArg: '{E}'")
+				# state = E
+
 
 			ratiostring = f'ratio{i-1}'
 			listofRooArgs.add(self.RooRealVar_dict[ratiostring])
@@ -1814,43 +1827,7 @@ class hyperEmg(FitMethods):
 			
 			i+= 1
 
-		# # Initial guesses and fit range
-		# mu0_init = 47638176 # ns
-		# mu1_init = 47638176 + 5500 # ns
-		# # mu0_init = 55445260 # ns
-		# # mu1_init = 55445260 + 2000 # ns
-		# xmin = mu0_init - 250 # ns
-		# xmax = mu1_init + 250 # ns
-		# self.xmin = mu0_init - 250 # ns
-		# self.xmax = mu1_init + 250 # ns
-
-
-		# # Create variables to be fitted
-		# self.RooRealVar_dict['x'] = RooRealVar("x", "x", xmin, xmax, 'ns') # range of x given by fit range
-		# # x.setRange('x-range', xmin, xmax)
-
-		# mu0_var = RooRealVar("mu0", "mu0", mu0_init, mu0_init-500, mu0_init+500, 'ns')
-		# mu1_var = RooRealVar("mu1", "mu1", mu1_init, mu1_init-500, mu1_init+500, 'ns')
-		# sigma_var = RooRealVar("sigma", "sigma", 40, 10, 100, 'ns')
-		# ntau0_var = RooRealVar("ntau0", "ntau0", 30, 10, 100, 'ns') 
-		# ptau0_var = RooRealVar("ptau0", "ptau0", 50, 10, 250, 'ns')
-		# ptau1_var = RooRealVar("ptau1", "ptau1", 300, 250, 500, 'ns')
-		# contrib0_var = RooRealVar("contrib0", "contrib0", 0.5, 0.01, 0.99, '%')
-		# contrib1_var = RooRealVar("contrib1", "contrib1", 0.5, 0.01, 0.99, '%')
-		# ratio_var = RooRealVar("ratio", "ratio", 0.5, 0.01, 0.99, '%')
-
-		# longarglist = RooArgList(self.RooRealVar_dict['x'], mu0_var, sigma_var, ntau0_var, contrib0_var, ptau0_var, contrib1_var, ptau1_var)
-		# longarglist.add(mu1_var)
-		# longarglist.add(ratio_var)
-
-		# hyperEMG12_string = '@4*1/(2*@3)*exp((@2/(1.4142*@3))^2+(@0-@1)/@3)*TMath::Erfc(@2/(1.4142*@3)+(@0-@1)/(1.4142*@2))+@6*1/(2*@5)*exp((@2/(1.4142*@5))^2-(@0-@1)/@5)*TMath::Erfc(@2/(1.4142*@5)-(@0-@1)/(1.4142*@2))+(1-@4-@6)*1/(2*@7)*exp((@2/(1.4142*@7))^2-(@0-@1)/@7)*TMath::Erfc(@2/(1.4142*@7)-(@0-@1)/(1.4142*@2))'
-		# hyperEMG12_string2 = '@4*1/(2*@3)*exp((@2/(1.4142*@3))^2+(@0-@8)/@3)*TMath::Erfc(@2/(1.4142*@3)+(@0-@8)/(1.4142*@2))+@6*1/(2*@5)*exp((@2/(1.4142*@5))^2-(@0-@8)/@5)*TMath::Erfc(@2/(1.4142*@5)-(@0-@8)/(1.4142*@2))+(1-@4-@6)*1/(2*@7)*exp((@2/(1.4142*@7))^2-(@0-@8)/@7)*TMath::Erfc(@2/(1.4142*@7)-(@0-@8)/(1.4142*@2))'
-		# fitmodel_string = '@9*('+hyperEMG12_string+")+(1-@9)*("+hyperEMG12_string2+")"
-
-
-
 		self.this_pdf = RooGenericPdf('hyperEmg', 'hyperEmg', funct, listofRooArgs)
-
 
 		#
 		self.roodefs = [self.this_pdf, self.RooRealVar_dict, self.RooGenericPdf_dict]
