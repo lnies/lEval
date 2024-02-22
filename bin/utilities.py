@@ -893,8 +893,8 @@ class MRToFUtils(NUBASE):
         """
         a = (tof0-tof1)/(math.sqrt(m0)-math.sqrt(m1))
         b = tof0 - a * math.sqrt(m0)
-        print((tof0-tof1))
-        print(math.sqrt(m0))
+        # print((tof0-tof1))
+        # print(math.sqrt(m0))
         return a, b
 
     def load_tof_calib(self, file):
@@ -903,7 +903,7 @@ class MRToFUtils(NUBASE):
         to be in the same format, otherwise the absolute references in this function won't work.
         Tested with a file from 2015 and 2022, both worked.
         """
-        data = pd.read_excel(file, 'new tof calibration', header=0)#, index_col=None, usecols = "Q", header = 0, nrows=0)
+        data = pd.read_excel(file, 'new tof calibration', header=0)#, engine='openpyxl', engine_kwargs={'read_only': True, 'data_only': True})#, index_col=None, usecols = "Q", header = 0, nrows=0)
         self.m0 = float(data.columns[16])
         self.m1 = float(data[data.columns[16]][0])
         self.tofm0_0 = float(data["Unnamed: 28"][0])
