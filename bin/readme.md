@@ -1,3 +1,18 @@
+# Installation
+
+It is recommended to set up a new virtual environment with python 3.8 for this project.
+```
+pip install virtualenv
+mkdir venv_leval
+cd venv_leval
+python3.8 -m venv py38leval
+source ./venv_leval/py38leval/bin/activate
+```
+Install all requirements. Start with CERN root. I recommend following the tutorial on the root webpage and installing the precompiled package. Then install the other python packages needed.
+```
+pip install pandas matplotlib numpy scipy chardet pyqt5 openpyxl ipykernel
+```
+
 # BIN Modules
 
 ## Processing
