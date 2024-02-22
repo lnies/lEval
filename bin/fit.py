@@ -53,7 +53,9 @@ class FitMethods(TOFPlot):
 		"""
 		Init.
 		"""
-		# QtCore.QObject.__init__(self)
+		# Init ToF Plot routine
+		TOFPlot.__init__(self, lst_file)
+		# Init fit related variables
 		self.my_name = name
 		self.fit_func_name = ''
 		self.this_pdf = RooGaussian()
@@ -732,6 +734,16 @@ class FitMethods(TOFPlot):
 			ax.get_xaxis().get_major_formatter().set_useOffset(False)
 			ax.get_xaxis().get_major_formatter().set_scientific(False)
 		ax.set_ylabel(f'Counts per bin', fontsize=fs_ylabel)
+
+        # Check if there are lines passed and plot them
+		if len(self.vlines) != 0:
+			#
+			for vline,text in zip(self.vlines, self.vlines_text):
+				self.add_isobar_line(vline-tof_zero, text, external = True, fig = fig, ax = ax, linezorder=99)
+			# Rescale y axis
+			ylims = ax.get_ylim()
+			ax.set_ylim(ylims[0], ylims[1]*10)
+
 
 		# Format Legend
 		if legend:
