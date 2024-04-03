@@ -1429,9 +1429,9 @@ class TOFPlot():
 
     def create_hist1d(self, df=None, 
             bins = 10, log=False, data = 'tof',
-            fs_labels = 25, fs_ticks = 20, figsize = (8.6,6), xlim = None, ylim = None, tof_offset=0,
+            fs_labels = 25, fs_ticks = 15, figsize = (8.6,6), xlim = None, ylim = None, tof_offset=0,
             style = 'errorbar', add_vlines = [], legend=False, orientation='vertical',
-            histalpha = 0.5, histlw = 2, fitzorder = 2, histzorder = 1,
+            histalpha = 0.5, histlw = 2, fitzorder = 2, histzorder = 1, histcolor = 'grey', histedgecolor='black',
             external = False, fig = None, ax = None,
         ):
         '''
@@ -1512,14 +1512,14 @@ class TOFPlot():
             cx = 0.5 * (xe[1:] + xe[:-1])
             dx = np.diff(xe)
             # use sqrt(n) as error, if n==1 use smaller error to avoid having inifite long error bars in log-scale
-            ax.errorbar(cx, n, [val ** 0.5 if val != 1 else 0.75 for val in n] ,
+            ax.errorbar(cx, n, [val ** 0.5 if val != 1 else 0.75 for val in n],
                     ecolor='black', elinewidth=1,  
                     fmt="ok", zorder=1, label=f"Data (bins={bins})")
             # self.ax.plot(xdata, np.zeros_like(xdata)-5, "|", alpha=0.1, label = "ToF Data", zorder = 3)
         
         elif style == 'hist':
             ax.hist(xdata, bins=int(bins), weights = weights,
-                 color='grey', edgecolor='black', linewidth=histlw,  
+                 color=histcolor, edgecolor=histedgecolor, linewidth=histlw,  
                 alpha = histalpha, histtype='stepfilled', label=f"Data (bins={bins})",
                 zorder= histzorder, orientation=orientation
                 )
@@ -1791,9 +1791,12 @@ class Peaks(TOFPlot):
                 self.latest_peak_idx = i 
                 
     def plot(self, bins = 10, lines = True, focus=False, log=False, silent = False, 
-            fs_labels = 25, fs_ticks = 20, figsize = (8.6,6), xlim = None, ylim = None, legend = False,
-            save = False, path_to_file = "peaks", style = 'hist', add_vlines = [],
+            fs_labels = 20, fs_ticks = 15, figsize = (8.6,6), xlim = None, ylim = None, 
+            xrange_mod = [800,3000], legend = False,
+            save = False, path_to_file = "peaks", style = 'hist', histcolor = 'grey', histedgecolor='black',
+            add_vlines = [],
             histalpha = 0.5, histlw = 2, fitzorder = 2, histzorder = 1, linezorder = 2,
+            prelim=False, prelimfs=30,
             external = False, fig = None, ax = None):
         '''
         Plot 1D Histogram with found peaks.
@@ -1816,33 +1819,40 @@ class Peaks(TOFPlot):
         if external:
             self.fig, self.ax = fig, ax
 
+        # zero the tof if True
+        tof_zero = self.pos[0]  
+
         # Create plot
-        self.create_hist1d(style=style,bins=bins, log=log,
+        self.create_hist1d(style=style,bins=bins, log=log, tof_offset = tof_zero, 
                             fs_labels = fs_labels, fs_ticks = fs_ticks, figsize = figsize, ylim = ylim,
                             external = external, fig=fig, ax=ax,
-                            histalpha = histalpha, histlw = histlw, fitzorder = fitzorder, histzorder = histzorder,
+                            histalpha = histalpha, histlw = histlw, histcolor=histcolor, histedgecolor=histedgecolor,
+                            fitzorder = fitzorder, histzorder = histzorder,
                             # add_vlines = add_vlines,
         )
+
+        # Add lines for the found peaks
         if lines:
             for i in range(self.n_peaks):
-                self.ax.axvline(self.pos[i], c='r', linewidth=1, zorder=3)
+                self.ax.axvline(self.pos[i]-tof_zero, c='r', linewidth=1, zorder=3)
                 
         # Zoom in on found peaks
         if focus:
-            self.ax.set_xlim(self.earliest_left_base-200, self.latest_right_base+200)
+            self.ax.set_xlim(self.earliest_left_base-xrange_mod[0]-tof_zero, self.latest_right_base+xrange_mod[1]-tof_zero)
 
         # 
         if xlim is not None:
-            self.ax.set_xlim(self.pos[0]+xlim[0], self.pos[0]+xlim[1])
+            self.ax.set_xlim(xlim[0], xlim[1])
         # 
         if ylim is not None:
             self.ax.set_ylim(ylim[0], ylim[1])
         
         # Rewrite ticks based on first ToF peak found
         originial_xticks = self.ax.get_xticks()
-        xticks = [tick+self.pos[0] for tick in originial_xticks-self.pos[0] + abs(originial_xticks-self.pos[0]).min()]
+        xticks = [tick for tick in originial_xticks + abs(originial_xticks).min()]
         self.ax.set_xticks(xticks)
-        self.ax.set_xticklabels(labels=[f'{tick:.1f}' for tick in xticks-self.pos[0]])
+        self.ax.set_xticklabels(labels=[f'{tick:.1f}' for tick in xticks])
+        print(xticks)
 
         # Add axis labels
         self.ax.set_xlabel(f'Time-of-Flight (ns) + {self.pos[0]:.1f}ns', fontsize=fs_labels)
@@ -1857,11 +1867,16 @@ class Peaks(TOFPlot):
         if len(self.vlines) != 0:
             #
             for vline,text in zip(self.vlines, self.vlines_text):
-                self.add_isobar_line(vline,text, linezorder=linezorder)
+                self.add_isobar_line(vline-tof_zero,text, linezorder=linezorder)
             # Rescale y axis
             ylims = self.ax.get_ylim()
             self.ax.set_ylim(ylims[0], ylims[1]*10)
 
+        # Print preliminary on top
+        if prelim:
+            self.ax.text(0.5, 0.5, 'PRELIMINARY', transform=self.ax.transAxes,
+                fontsize=prelimfs, color='red', alpha=0.3,
+                ha='center', va='center', rotation=30)
 
         if not external:
             plt.tight_layout()
@@ -1871,8 +1886,8 @@ class Peaks(TOFPlot):
             plt.show()
 
         # Clear canvas to avoid printing on top of other plot in batch mode
-        if silent:
-            plt.clf()
+        # if silent:
+        #     plt.clf()
 
         # return axis if external plotting is uesd
         if external:
@@ -1881,7 +1896,34 @@ class Peaks(TOFPlot):
         if save:
             plt.savefig(path_to_file, dpi=300)
             # plt.clf()
-   
+    
+    def add_plot(self, df, bins = 10, lines = True, focus=False, log=False, silent = False, 
+            fs_labels = 25, fs_ticks = 15, figsize = (8.6,6), xlim = None, ylim = None, legend = False,
+            save = False, path_to_file = "peaks", style = 'hist', histcolor = 'grey', histedgecolor='black',
+            add_vlines = [],
+            histalpha = 0.5, histlw = 2, fitzorder = 2, histzorder = 1, linezorder = 2,
+            external = False, fig = None, ax = None):
+        """
+
+        """
+        #
+        # plt.show()
+        self.create_hist1d(df=df, style=style,bins=bins, log=log, tof_offset=self.pos[0],
+                            fs_labels = fs_labels, fs_ticks = fs_ticks, figsize = figsize, ylim = ylim,
+                            external = True, fig = self.fig, ax = self.ax,
+                            histalpha = histalpha, histlw = histlw, histcolor=histcolor, histedgecolor=histedgecolor,
+                            fitzorder = fitzorder, histzorder = histzorder,
+                            # add_vlines = add_vlines,
+        )
+
+        #
+        if not external:
+            plt.tight_layout()
+
+        #Show plot on canvas
+        if not silent:
+            plt.show()
+
     def plot2d(self, x_bins=20, hist2d_y_bins = 100, y_bins=10, focus=-1, log=False, figsize=(12,7),
                 linezorder = 2, lines = True, add_hlines = [],
         ):
