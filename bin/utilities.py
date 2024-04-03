@@ -1719,6 +1719,10 @@ class Peaks(TOFPlot):
         self.peak_width_inbins = (3,100)
         self.peak_prominence = None
         self.peak_wlen = None
+        self.pos = []
+        self.std = []
+        self.left_bases = []
+        self.right_bases = []
         #
         TOFPlot.__init__(self, df_file)
 
@@ -1732,10 +1736,6 @@ class Peaks(TOFPlot):
             - ...
         """
         #
-        self.pos = []
-        self.std = []
-        self.left_bases = []
-        self.right_bases = []
         self.bins = bins
         # faster binning for projections than histograms -> necessary in order to automatically find peaks
         x_proj_for_pfind = self.file.tof.value_counts(bins=self.get_binning(self.bins)).sort_index()
@@ -1812,15 +1812,19 @@ class Peaks(TOFPlot):
          vlines should be added
         '''
         #
-        if self.n_peaks == 0:
-            print("Not peaks, no plots :)")
-            return 0
+        # if self.n_peaks == 0:
+        #     print("Not peaks, no plots :)")
+        #     return 0
         # external plot
         if external:
             self.fig, self.ax = fig, ax
 
         # zero the tof if True
-        tof_zero = self.pos[0]  
+        if self.n_peaks != 0:
+            tof_zero = self.pos[0]
+        else: 
+            tof_zero = 0
+            self.pos.append(tof_zero) 
 
         # Create plot
         self.create_hist1d(style=style,bins=bins, log=log, tof_offset = tof_zero, 
