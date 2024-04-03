@@ -15,6 +15,7 @@ import pandas as pd
 from io import StringIO
 from configparser import ConfigParser, RawConfigParser
 from chardet import detect
+import time
 import re
 import datetime
 
@@ -67,7 +68,9 @@ class ProcessorBase():
 			# print(key)
 			key_m1 = list(df_dict_deepcopy.keys())[i-1]
 			# print(key_m1, df_dict_deepcopy[key_m1].iloc[-1]['sweep'])
-			df_dict_deepcopy[key]['sweep'] += df_dict_deepcopy[key_m1].iloc[-1]['sweep'] + 1
+			df_dict_deepcopy[key]['sweep'] += df_dict_deepcopy[key_m1].sweep.max() + 1
+			print(df_dict_deepcopy[key])
+			print(df_dict_deepcopy[key_m1].sweep.max() + 1)
 		#
 		df = pd.concat(df_dict_deepcopy, ignore_index=True)
 		# Save to file if file name is passed
@@ -207,7 +210,6 @@ class MCS6Lst(ProcessorBase):
 		max_sweep_length = self.conversion_df.loc[time_patch.decode('ascii'),'Max_Sweep_Length']
 
 		steps = len(binary[binary.tell():])/data_length
-		first_it = True
 
 		if verbose>1:
 			print(f"Data length: {data_length}\nN bits: {nb_bits}\nData lost bit: {data_lost_bit}\n\
@@ -220,10 +222,16 @@ class MCS6Lst(ProcessorBase):
 		sweep_counter_overflow = 0
 		old_sweep = 0 # for detecting when overflow happens
 		# loop through all bytewords
+		converted_data = np.empty([int(steps), 6], dtype = float)
+		start_time = time.time()
+		loop_end = time.time() 
 		for i in range(int(steps)):
+			total_time = start_time-time.time()
+			loop_start = time.time()
 			if verbose>0:
 				if (i%(int(steps/10))==0):
-					print(f"Step {i} of {steps}.")
+					print(f"Step {i} of {steps} ({100*i/(int(steps)):.1f}%). dt={loop_start-loop_end:.1f}s")
+					loop_end=time.time()
 			byteword = binary.read(data_length)
 			tof, sweep, channel, edge, tag, fifo = self.convert_bytes(byteword,nb_bits,
 				data_lost_bit, tag_bits, sweep_counter, time_bits, verbose=verbose)
@@ -240,11 +248,7 @@ class MCS6Lst(ProcessorBase):
 				if verbose>1: print(f"sweep: {sweep}")
 			#
 			if channel != 0 :#means for real data
-				if first_it:
-					converted_data = np.array([tof, sweep, channel, edge, tag, fifo])
-					first_it = False
-				else :
-					converted_data = np.vstack((converted_data, np.array([tof, sweep, channel, edge, tag, fifo])))
+				converted_data[i] = [tof, sweep, channel, edge, tag, fifo]
 		binary.close()
 		return converted_data
 
