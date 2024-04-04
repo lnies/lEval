@@ -940,7 +940,7 @@ class MRToFUtils(NUBASE):
         #
         F1, MCP = self.__calc_tof_outside_device(m)
         if nrevs != 0:
-            TG1 = ((self.a1 * np.sqrt(m) + self.b1) - F1 - MCP ) / self.revN2 * int(nrevs) 
+            TG1 = ((self.a1 * np.sqrt(m - self.e_in_u) + self.b1) - F1 - MCP ) / self.revN2 * int(nrevs) 
             tof = TG1 + F1 + MCP 
         else:
             tof = F1 + MCP
