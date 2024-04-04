@@ -921,7 +921,7 @@ class MRToFUtils(NUBASE):
         """
         Calculates the relevant ToFs outside the MR-ToF MS
         """
-        F1 = (self.a0 * np.sqrt(m - self.e_in_u) + self.b0) * 3/4  # Flight time into center of isep cavity, aka pulse down delay. Scaling factor 3/4 depends on location of detector from which total flight time outside of device is determined.
+        F1 = (self.a0 * np.sqrt(float(m) - float(self.e_in_u)) + self.b0) * 3/4  # Flight time into center of isep cavity, aka pulse down delay. Scaling factor 3/4 depends on location of detector from which total flight time outside of device is determined.
         MCP = 1/3*F1 # Flight time from center of isep cavity to detector, changes between EMP2h and EMP3h
         return F1, MCP
 
@@ -1656,7 +1656,7 @@ class TOFPlot():
                     vline = self.utils.calc_ToF(self.utils.get_value(isobar.split("-")[0], value='mass')+self.utils.get_value(isobar.split("-")[0], value='excitation_energy', state=state)/self.utils.u, nrevs)*1e3
                 else:
                     vline = self.utils.calc_ToF(self.utils.get_value(isobar, value='mass'), nrevs)*1e3
-                self.vlines_text.append(isobar)
+                self.vlines_text.append(f'{isobar}, tof={vline:.0f}')
                 self.vlines.append(vline)
                 # self.__add_isobar_line(vline, isobar)
             return
@@ -1666,7 +1666,7 @@ class TOFPlot():
                 for idx,row in self.utils.ame[self.utils.ame.A==A].iterrows():
                     vline = self.utils.calc_ToF(self.utils.get_value(f'{A}{row["element"]}', value='mass', state='gs'), nrevs)*1e3
                     self.vlines.append(vline)
-                    self.vlines_text.append(f'{A}{row["element"]}')
+                    self.vlines_text.append(f'{A}{row["element"]}, tof={vline:.0f}')
                     # self.__add_isobar_line(vline, f'{A}{row["element"]}')
             else:
                 # Calculate base and molecular mass
@@ -1687,7 +1687,7 @@ class TOFPlot():
                     #
                     vline = self.utils.calc_ToF(mass, nrevs)*1e3
                     self.vlines.append(vline)
-                    self.vlines_text.append(f'{int(A-mol_A)}{row["element"]}{molecule}')
+                    self.vlines_text.append(f'{int(A-mol_A)}{row["element"]}{molecule}, tof={vline:.0f}')
             return
 
     def add_clusters(self, isotope, nrange, nrevs):
