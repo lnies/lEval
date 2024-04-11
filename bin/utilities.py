@@ -1626,7 +1626,8 @@ class TOFPlot():
             self.ax = ax
 
     def add_isobar_line(self, vline, text,
-                        external = False, fig = None, ax = None, linezorder = 1):
+                        external = False, fig = None, ax = None, linezorder = 1,
+                        fs_ioslabel=8):
         """
         Add vline to axis
         """
@@ -1641,7 +1642,7 @@ class TOFPlot():
             transform =ax.get_xaxis_transform(), zorder = linezorder,
             horizontalalignment='center',
             verticalalignment='center',
-            fontsize=8,
+            fontsize=fs_ioslabel,
         )
 
     def add_isobars(self, nrevs, A=None, iso_list=None, molecule=None):
@@ -1796,7 +1797,7 @@ class Peaks(TOFPlot):
             save = False, path_to_file = "peaks", style = 'hist', histcolor = 'grey', histedgecolor='black',
             add_vlines = [],
             histalpha = 0.5, histlw = 2, fitzorder = 2, histzorder = 1, linezorder = 2,
-            prelim=False, prelimfs=30,
+            prelim=False, prelimfs=30, fs_ioslabel = 8,
             external = False, fig = None, ax = None):
         '''
         Plot 1D Histogram with found peaks.
@@ -1872,7 +1873,7 @@ class Peaks(TOFPlot):
         if len(self.vlines) != 0:
             #
             for vline,text in zip(self.vlines, self.vlines_text):
-                self.add_isobar_line(vline-tof_zero,text, linezorder=linezorder)
+                self.add_isobar_line(vline-tof_zero,text, linezorder=linezorder, fs_ioslabel=fs_ioslabel)
             # Rescale y axis
             ylims = self.ax.get_ylim()
             self.ax.set_ylim(ylims[0], ylims[1]*10)
