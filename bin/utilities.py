@@ -891,8 +891,8 @@ class MRToFUtils(NUBASE):
         """
         calculates the ToF parameters at a certain nrevs based on tofs and masses of two calibrants
         """
-        a = (tof0-tof1)/(math.sqrt(m0)-math.sqrt(m1))
-        b = tof0 - a * math.sqrt(m0)
+        a = (tof0-tof1)/(math.sqrt(m0-self.e_in_u)-math.sqrt(m1-self.e_in_u))
+        b = tof0 - a * math.sqrt(m0-self.e_in_u)
         # print((tof0-tof1))
         # print(math.sqrt(m0))
         return a, b
@@ -904,8 +904,8 @@ class MRToFUtils(NUBASE):
         Tested with a file from 2015 and 2022, both worked.
         """
         data = pd.read_excel(file, 'new tof calibration', header=0)#, engine='openpyxl', engine_kwargs={'read_only': True, 'data_only': True})#, index_col=None, usecols = "Q", header = 0, nrows=0)
-        self.m0 = float(data.columns[16])
-        self.m1 = float(data[data.columns[16]][0])
+        self.m0 = float(data.columns[16])+self.e_in_u # ionic mass from sheet, convert back to atomic mass
+        self.m1 = float(data[data.columns[16]][0])+self.e_in_u # ionic mass from sheet, convert back to atomic mass
         self.tofm0_0 = float(data["Unnamed: 28"][0])
         self.tofm1_0 = float(data["Unnamed: 28"][1])
         self.tofm0_1 = float(data.columns[18])
@@ -940,7 +940,8 @@ class MRToFUtils(NUBASE):
         #
         F1, MCP = self.__calc_tof_outside_device(m)
         if nrevs != 0:
-            TG1 = ((self.a1 * np.sqrt(m - self.e_in_u) + self.b1) - F1 - MCP ) / self.revN2 * int(nrevs) 
+            TG1 = ((self.a1 * np.sqrt(m-self.e_in_u) + self.b1) - F1 - MCP ) / self.revN2 * int(nrevs)
+            # TG1 = ((self.a1 * np.sqrt(m - self.e_in_u) + self.b1) - F1 - MCP ) / self.revN2 * int(nrevs) 
             tof = TG1 + F1 + MCP 
         else:
             tof = F1 + MCP
