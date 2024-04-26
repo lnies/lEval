@@ -293,15 +293,15 @@ class MCS6Lst(ProcessorBase):
 
 		return mapped_file, time_patch
 
-	def process(self,file_array,to_csv = False, verbose=0):
+	def process(self,file_array,to_csv = False, full_info=False, verbose=0):
 		"""
 		Perform the processing of the files 
 		Parameters:
 			- file_array: Array of file-paths
 			- to_csv: if true, saves files under it's file name with .csv extension
+			- full_info: for regular application the channel, edge, tag and fifo info are constant so they don't have to be saved. In that case keep full_info = False
 			- verbose: verbosity
 		"""
-		full_info = False   # for regular application the channel, edge, tag and fifo info are constant so they don't have to be saved. In that case keep full_info = False
 		self.files = file_array
 		for filename in self.files:
 			with open(filename,'rb') as listfile:
@@ -315,9 +315,20 @@ class MCS6Lst(ProcessorBase):
 						np.savetxt('{}/{}.csv'.format(os.path.split(filename)[0],os.path.splitext(os.path.basename(filename))[0]),converted_data,
 					fmt = '%i,%i,%i,%i,%f,%f', header = header_res)
 				else:
+					# build pandas dataframe
 					converted_data = pd.DataFrame(self.decode_binary(binary,time_patch,verbose)[:, [0,1]], columns=['tof', 'sweep'])     # saves only tof and sweep info
-					converted_data.tof = converted_data.tof/10  # 100ps -> ns
-					converted_data.sweep = converted_data.sweep.astype('int64')  # sweep is only int
+					converted_data.tof = converted_data.tof/10  # convert 100ps intrinsic binning into nanoseconds 
+					# drop zeros (not clear why sometimes a lot of zero-tof zero-sweep lines are written)
+					converted_data = converted_data[(converted_data.sweep > 0.9)&(converted_data.tof > 0.9)&(converted_data.tof < 1e12)] # test for > 0.9 as most empty sweeps are 0, but some are 1e-312 due to numerical problems in the decoding
+					# Cast sweep numbers into integers
+					try:
+						converted_data.sweep = converted_data.sweep.astype('int64')  # sweep is only int
+					except pd.errors.IntCastingNaNError:
+						print("(MCS6Lst.process) IntCastingNaNError: error casting sweep numbers into Integers.")
+						print(converted_data.sweep)
+					# filter for a second time
+					converted_data = converted_data[(converted_data.sweep > 0.9)&(converted_data.tof > 0.9)&(converted_data.tof < 1e12)] # test for > 0.9 as most empty sweeps are 0, but some are 1e-312 due to numerical problems in the decoding
+					# Write csv
 					if to_csv:
 						converted_data.to_csv('{}/{}.csv'.format(os.path.split(filename)[0],os.path.splitext(os.path.basename(filename))[0]), index=False)
 				print('File {} loaded successfully!'.format(os.path.splitext(os.path.basename(filename))[0]))
