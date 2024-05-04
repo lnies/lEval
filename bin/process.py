@@ -84,7 +84,9 @@ class ProcessorBase():
 		parser.read_file(StringIO(txt))
 		tmp = parser.as_dict()
 		self.pars[key] = dict(**tmp['CHN1'])
-		self.pars[key].update(**tmp['MPA4A'])
+		# test for hardware version
+		hw = list(tmp.keys())[0]
+		self.pars[key].update(**tmp[hw])
 
 class MCS6Lst(ProcessorBase):
 	'''
@@ -328,9 +330,9 @@ class MCS6Lst(ProcessorBase):
 						print(converted_data.sweep)
 					# filter for a second time
 					converted_data = converted_data[(converted_data.sweep > 0.9)&(converted_data.tof > 0.9)&(converted_data.tof < 1e12)] # test for > 0.9 as most empty sweeps are 0, but some are 1e-312 due to numerical problems in the decoding
-					# Write csv
+					# Write data to csv. To avoid numerical issues with writing floats, only write %.3f digits
 					if to_csv:
-						converted_data.to_csv('{}/{}.csv'.format(os.path.split(filename)[0],os.path.splitext(os.path.basename(filename))[0]), index=False)
+						converted_data.to_csv('{}/{}.csv'.format(os.path.split(filename)[0],os.path.splitext(os.path.basename(filename))[0]), index=False, float_format='%.3f')
 				print('File {} loaded successfully!'.format(os.path.splitext(os.path.basename(filename))[0]))
 				self.df_dict[os.path.splitext(os.path.basename(filename))[0]] = converted_data
 		if full_info == False:
@@ -354,7 +356,9 @@ class MPANTMpa(ProcessorBase):
 		with open(mpa, 'r') as f:
 			fs = f.read()
 			name = os.path.basename(mpa).split('.')[0]
-			raw_header, raw_data = fs.split('[DATA]\n')
+			raw_header = fs.split('[DATA]\n')[0]
+			raw_data = fs.split('[DATA]\n')[1]
+			raw_data = raw_data.split('[TDAT1,400000 ]\n')[0] # split once more to remove bottom of file from MIRACLS MCS8 card data format 
 			if bool(raw_data) and len(raw_data.split(' ')) >= 9:
 				self.parse_header(name, raw_header)
 				self.df_dict[name] = pd.read_csv(StringIO(raw_data), delimiter=' ', usecols=(0, 1, 2), header=None, names=['tof', 'sweep', 'counts'])
@@ -381,10 +385,14 @@ class MPANTMpa(ProcessorBase):
 			if name not in self.df_dict.keys():
 				print(f"(MPANTMpa.process): WARNING: file {name} not processed. Empty?")
 				continue
-			#
+			# Recreate ToF from meta-data: 
+			### ToFs are stored as bins with a binwidth stored as "calfact" (ns) and a ToF offset (acqusition delay)
+			### of "caloff" (ns). As the data is prebinned, we assume all the ToF in one bin to be at the bin center, hence 
+			### we subtract 0.5 from each bin before converting the bin number into a ToF, followed by adding the ToF offset
 			self.df_dict[name].tof = (self.df_dict[name].tof - 0.5) * float(self.pars[name]['calfact']) + float(self.pars[name]['caloff'])
+			# Write data to csv. To avoid numerical issues with writing floats, only write %.3f digits
 			if to_csv:
-				self.df_dict[name].to_csv('{}/{}.csv'.format(os.path.split(f)[0],os.path.splitext(os.path.basename(f))[0]), index=False)
+				self.df_dict[name].to_csv('{}/{}.csv'.format(os.path.split(f)[0],os.path.splitext(os.path.basename(f))[0]), index=False, float_format='%.3f')
 		#
 		return self.pars, self.data, pd.concat(self.df_dict, axis=1)
 
