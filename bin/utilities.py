@@ -1413,7 +1413,9 @@ class TOFPlot():
 
     def get_binning(self, bins=1, df = None):
         """
-        Adapts binning to multiples of 0.8ns, assuming that 0.8ns was used to take data (to common case)
+        Adapts binning to multiples of the intrinsic binning
+        - prebinning = 8 for ISOLTRAP MCS6A, multiplication factor for 100ps device resolution (calfact variable in .mpa header)
+        - prebinning = 64 for MIRACLS MCS8A, multiplication factor for 100ps device resolution (calfact variable in .mpa header)
         """
         # Get min and max tof from data frame
         if df is not None:
@@ -1425,8 +1427,22 @@ class TOFPlot():
         # Avoid having empty binning when maxx is equal to minn
         if minn == maxx:
             maxx += 1
-        #
-        return round((maxx-minn)/0.8/bins)
+        # Infer prebinning by counting the tof distances between all datapoints and taking most occuring distance if reasonable
+        ## First sort values by tof, then take the difference between neighboring counts, round to avoid numerical problems, 
+        ## then count and pick the most occurant
+        value_counts = self.file.tof.sort_values().diff().round(2).value_counts()
+        if round(value_counts.index[0], 2) < 0.8 and round(value_counts.index[1], 2) >= 0.8:
+            infered_prebin = round(value_counts.index[1], 2) # if the most occuring tof difference is smaller 0.8, then pick the second most occuring distance
+        elif round(value_counts.index[0], 2) < 0.8 and round(value_counts.index[1], 2) < 0.8:
+            infered_prebin = 0.8
+        else:
+            infered_prebin = round(value_counts.index[0], 2)
+        if infered_prebin in [0.1, 0.2, 0.4, 0.8, 1.6, 3.2, 6.4, 12.8, 25.6, 5.12, 10.24]:
+            prebinning = infered_prebin
+        else:
+            print(f"(TOFPlot.get_binning): Prebinning could not be inferred. Falling back to 0.8ns. (infered_prebin={infered_prebin})")
+            prebinning = 0.8
+        return round((maxx-minn)/(prebinning)/bins)
 
     def create_hist1d(self, df=None, 
             bins = 10, log=False, data = 'tof',
@@ -1480,7 +1496,7 @@ class TOFPlot():
                 xdata = tof
                 bins = x_binning
                 weights = counts
-                n, xe = np.histogram(tof, bins=bins, weights = weights)
+                n, xe = np.histogram(xdata, bins=bins, weights = weights)
             if data == 'sweep':
                 xdata = sweep
                 weights = counts
@@ -1534,7 +1550,7 @@ class TOFPlot():
 
         # add vlines
         for vline in add_vlines:
-            ax.axvline(vline, c='b', linewidth=1, zorder=3, ls = '--')
+            ax.axvline(vline-tof_offset, c='b', linewidth=1, zorder=3, ls = '--')
 
         
         if xlim is not None:
@@ -1542,7 +1558,7 @@ class TOFPlot():
         if ylim is not None:
             ax.set_ylim(ylim[0], ylim[1])
         
-        # Add axis labels
+        # Add axis labels 
         # self.ax.set_xlabel(f'Time-of-Flight (ns)', fontsize=fs_labels)
         # self.ax.set_ylabel(f'Counts per bin', fontsize=fs_labels)
 
@@ -1837,7 +1853,7 @@ class Peaks(TOFPlot):
                             external = external, fig=fig, ax=ax,
                             histalpha = histalpha, histlw = histlw, histcolor=histcolor, histedgecolor=histedgecolor,
                             fitzorder = fitzorder, histzorder = histzorder,
-                            # add_vlines = add_vlines,
+                            add_vlines = add_vlines,
         )
 
         # Add lines for the found peaks
@@ -1996,7 +2012,7 @@ class Peaks(TOFPlot):
                 ax_x.axvline(self.pos[i], c='r', linewidth=1, zorder=3)
         
         # Zoom in on found peaks
-        if focus:
+        if focus and len(self.pos)!=0:
             ax_0.set_xlim(self.earliest_left_base-600, self.latest_right_base+600)
 
         # add horizontal lines
