@@ -169,7 +169,7 @@ class MCS6Lst(ProcessorBase):
 			index_low_sweep = nb_bits-1-int(sweep_counter[0])
 			sweep = int(bit_word[index_high_sweep:index_low_sweep+1],2)
 
-		if bit_word != "000000000000000000000000000000000000000000000000" and verbose>1:
+		if bit_word != "000000000000000000000000000000000000000000000000" and verbose>2:
 			print(f"bit_word: {bit_word}")
 			print(f"index_data_lost_bit: {fifo}")
 			print(f"index_high_tag: {index_high_tag}")
@@ -240,14 +240,14 @@ class MCS6Lst(ProcessorBase):
 			# Check whether overflow happened (for example old_sweep = 127, new sweep is 0)
 			# Only do for non-zero events:
 			if tof != 0: 
-				if verbose>1: print(f"old_sweep: {old_sweep}")
+				if verbose>2: print(f"old_sweep: {old_sweep}")
 				if old_sweep > sweep:
 					sweep_counter_overflow += 1
-				if verbose>1: print(f"sweep_counter_overflow: {sweep_counter_overflow}")
+				if verbose>2: print(f"sweep_counter_overflow: {sweep_counter_overflow}")
 				old_sweep = sweep 
 				# Add overflow to the sweep number (in case sweep has 7bit int -> 2**7=128)
 				sweep += sweep_counter_overflow*(2**(sweep_counter[1]-sweep_counter[0]+1))
-				if verbose>1: print(f"sweep: {sweep}")
+				if verbose>2: print(f"sweep: {sweep}")
 			#
 			if channel != 0 :#means for real data
 				converted_data[i] = [tof, sweep, channel, edge, tag, fifo]
@@ -321,15 +321,15 @@ class MCS6Lst(ProcessorBase):
 					converted_data = pd.DataFrame(self.decode_binary(binary,time_patch,verbose)[:, [0,1]], columns=['tof', 'sweep'])     # saves only tof and sweep info
 					converted_data.tof = converted_data.tof/10  # convert 100ps intrinsic binning into nanoseconds 
 					# drop zeros (not clear why sometimes a lot of zero-tof zero-sweep lines are written)
-					converted_data = converted_data[(converted_data.sweep > 0.9)&(converted_data.tof > 0.9)&(converted_data.tof < 1e12)] # test for > 0.9 as most empty sweeps are 0, but some are 1e-312 due to numerical problems in the decoding
-					# Cast sweep numbers into integers
-					try:
-						converted_data.sweep = converted_data.sweep.astype('int64')  # sweep is only int
-					except pd.errors.IntCastingNaNError:
-						print("(MCS6Lst.process) IntCastingNaNError: error casting sweep numbers into Integers.")
-						print(converted_data.sweep)
-					# filter for a second time
-					converted_data = converted_data[(converted_data.sweep > 0.9)&(converted_data.tof > 0.9)&(converted_data.tof < 1e12)] # test for > 0.9 as most empty sweeps are 0, but some are 1e-312 due to numerical problems in the decoding
+					# converted_data = converted_data[(converted_data.sweep > 0.9)&(converted_data.tof > 0.9)&(converted_data.tof < 1e12)] # test for > 0.9 as most empty sweeps are 0, but some are 1e-312 due to numerical problems in the decoding
+					# # Cast sweep numbers into integers
+					# try:
+					# 	converted_data.sweep = converted_data.sweep.astype('int64')  # sweep is only int
+					# except pd.errors.IntCastingNaNError:
+					# 	print("(MCS6Lst.process) IntCastingNaNError: error casting sweep numbers into Integers.")
+					# 	print(converted_data.sweep)
+					# # filter for a second time
+					# converted_data = converted_data[(converted_data.sweep > 0.9)&(converted_data.tof > 0.9)&(converted_data.tof < 1e12)] # test for > 0.9 as most empty sweeps are 0, but some are 1e-312 due to numerical problems in the decoding
 					# Write data to csv. To avoid numerical issues with writing floats, only write %.3f digits
 					if to_csv:
 						converted_data.to_csv('{}/{}.csv'.format(os.path.split(filename)[0],os.path.splitext(os.path.basename(filename))[0]), index=False, float_format='%.3f')
@@ -358,7 +358,7 @@ class MPANTMpa(ProcessorBase):
 			name = os.path.basename(mpa).split('.')[0]
 			raw_header = fs.split('[DATA]\n')[0]
 			raw_data = fs.split('[DATA]\n')[1]
-			raw_data = raw_data.split('[TDAT1,400000 ]\n')[0] # split once more to remove bottom of file from MIRACLS MCS8 card data format 
+			raw_data = raw_data.split('[TDAT1,')[0] # split once more to remove bottom of file from MIRACLS MCS8 card data format 
 			if bool(raw_data) and len(raw_data.split(' ')) >= 9:
 				self.parse_header(name, raw_header)
 				self.df_dict[name] = pd.read_csv(StringIO(raw_data), delimiter=' ', usecols=(0, 1, 2), header=None, names=['tof', 'sweep', 'counts'])

@@ -1878,7 +1878,6 @@ class Peaks(TOFPlot):
             xticks = [tick for tick in originial_xticks + abs(originial_xticks).min()]
             self.ax.set_xticks(xticks)
             self.ax.set_xticklabels(labels=[f'{tick:.1f}' for tick in xticks])
-            print(xticks)
 
         # Add axis labels
         self.ax.set_xlabel(f'Time-of-Flight (ns) + {self.pos[0]:.1f}ns', fontsize=fs_labels)

@@ -10,8 +10,14 @@ source ./venv_leval/py38leval/bin/activate
 ```
 Install all requirements. Start with CERN root. I recommend following the tutorial on the root webpage and installing the precompiled package. Then install the other python packages needed.
 ```
-pip install pandas matplotlib numpy scipy chardet pyqt5 openpyxl ipykernel
+pip install pandas matplotlib numpy scipy chardet openpyxl ipykernel pyqt5
 ```
+Optional requirements to run Jupyter Lab notebooks with Qt windows
+```
+pip install jupyter lab
+apt install libgl1
+```
+
 
 # BIN Modules
 
