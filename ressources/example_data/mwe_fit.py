@@ -41,8 +41,8 @@ def main():
 	histTH1D = lst2roothist(df)
 
 	# Initial guesses and fit range
-	mu0_init = 55445260 # ns
-	mu1_init = 55445260 + 2000 # ns
+	mu0_init = 45140066.1 # ns
+	mu1_init = 45140066.1 + 1000 # ns
 	xmin = mu0_init - 250 # ns
 	xmax = mu1_init + 250 # ns
 
@@ -54,12 +54,12 @@ def main():
 	mu0_var = RooRealVar("mu0", "mu0", mu0_init, mu0_init-200, mu0_init+200, 'ns')
 	mu1_var = RooRealVar("mu1", "mu1", mu1_init, mu1_init-200, mu1_init+200, 'ns')
 	sigma_var = RooRealVar("sigma", "sigma", 40, 10, 100, 'ns')
-	ntau0_var = RooRealVar("ntau0", "ntau0", 30, 10, 100, 'ns') 
-	ptau0_var = RooRealVar("ptau0", "ptau0", 50, 10, 250, 'ns')
+	ntau0_var = RooRealVar("ntau0", "ntau0", 30, 20, 100, 'ns') 
+	ptau0_var = RooRealVar("ptau0", "ptau0", 50, 25, 500, 'ns')
 	ptau1_var = RooRealVar("ptau1", "ptau1", 300, 250, 500, 'ns')
 	contrib0_var = RooRealVar("contrib0", "contrib0", 0.8, 0.5, 0.99, '%')
-	contrib1_var = RooRealVar("contrib1", "contrib1", 0.2, 0.01, 0.5, '%')
-	ratio_var = RooRealVar("ratio", "ratio", 0.3, 0.1, 0.5, '%')
+	contrib1_var = RooRealVar("contrib1", "contrib1", 0.2, 0.01, 0.9, '%')
+	ratio_var = RooRealVar("ratio", "ratio", 0.3, 0.1, 0.99, '%')
 
 
 	## Method 1: build individual hyperEMGs and add them later
@@ -92,7 +92,7 @@ def main():
 	roodata = RooDataHist("data", "data", x, histTH1D)
 
 	result = fitmodel.fitTo(roodata, RooFit.Range('x-range'),
-								RooFit.Minos(ROOT.kTRUE),
+								RooFit.Minos(ROOT.kFALSE),
 								RooFit.PrintEvalErrors(-1),
 								RooFit.NumCPU(1),
 								RooFit.Timer(ROOT.kTRUE),
