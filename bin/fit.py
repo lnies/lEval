@@ -470,9 +470,9 @@ class FitMethods(TOFPlot):
 	# Plot functions
 
 	def plot(self, bins = 1, log=True, focus=False, xrange_mod = [800,3000], from_file = False, file_out=False, contribs = False,
-		silent=False, centroids=False, components=False, carpet=False, legend=True, style='hist', lw_fit = 2,
-		fs_legend = 14, fs_xlabel = 20, fs_ylabel = 20, fs_ticks = 15, figsize = (6,4), add_vlines = [], 
-		prelim=False, prelimfs = 10, pre_bin_size = 0.8, fitalpha = 0.5, histalpha = 0.75, histlw = 2.0, fitzorder = 2, histzorder = 1,
+		silent=False, centroids=False, components=False, carpet=False, residuals = False, legend=True, style='hist', lw_fit = 2,
+		fs_legend = 14, fs_xlabel = 20, fs_ylabel = 20, fs_ticks = 15, figsize = (8.6, 6), add_vlines = [], 
+		prelim=False, prelimfs = 30, pre_bin_size = 0.8, fitalpha = 0.5, histalpha = 0.75, histlw = 2.0, fitzorder = 2, histzorder = 1,
 		tofoffset = True,
 		external = False, fig = False, ax = False,
 		):
@@ -489,6 +489,7 @@ class FitMethods(TOFPlot):
 			- centroids: True shows centroids of Gaussian components, as well as location of FWHM of main peak. Defaults to False.
 			- components: Plots components to EGH as grey dashed lines
 			- carpet: If true, plots carpet 
+			- residuals: plot residuals between data and fit
 			- legend: Plot legend if
 			- add_vlnies: Array-like, adds vlines at ToF values entered throug array
 			- prelim: adds preliminary watermark
@@ -501,7 +502,15 @@ class FitMethods(TOFPlot):
 		# if not external plotting
 		if not external:
 			plt.rcParams["figure.figsize"] = figsize
-			fig, ax = plt.subplots(nrows=1, ncols=1, figsize=figsize)
+			if not residuals:
+				fig, ax = plt.subplots(nrows=1, ncols=1, figsize=figsize)
+			if residuals: 
+				fig, (ax, ax2) = plt.subplots(nrows=2, ncols=1, figsize=figsize, sharex=True, height_ratios=[3,1])
+				# fig = plt.figure()
+				# gs = mpl.gridspec.GridSpec(3, 3, wspace=0.0, hspace=0.0)
+				# ax = fig.add_subplot(gs[:-1, :])
+				# ax2 = fig.add_subplot(gs[-1, :-1])
+				# ax3 = fig.add_subplot(gs[-1, -1])
 		#
 		if len(self.lst_file) == 0:
 			print("Fit not excecuted yet or failed.")
@@ -568,18 +577,50 @@ class FitMethods(TOFPlot):
 
 		# Normalize values
 		integral_cut = sum(y_val) * np.diff(xm)[0]
+		print(f"integral cut: {integral_cut}, int: {sum(y_val)}, spacing: {np.diff(xm)[0]}")
 		left_n_cut = len(xe[xe<plot_xmin])
 		right_n_cut = len(xe[xe<plot_xmax])
 		n_cut = n[left_n_cut:right_n_cut]        
 		y_val = y_val / integral_cut * sum(n_cut) * dx[0]
+
 
 		# Plot fit	
 		ax.plot(xm - tof_zero, 
 				y_val, label=f"{self.fit_func_name}({self.dimensions[0]},{self.dimensions[1]})", c='r', linewidth=lw_fit, alpha=fitalpha,
 				zorder = fitzorder,
 		)
-		
+
 		ax.fill_between(xm - tof_zero, y_val, alpha=0.4, color='grey')
+
+		# Plot residuals
+		if residuals:
+			# get fit values at ToF bin centers
+			y_val_res = []
+			for i in cx:
+				self.RooRealVar_dict['x'].setVal(i)
+				y_val_res.append(self.this_pdf.getVal(ROOT.RooArgSet(self.RooRealVar_dict['x'])))
+
+
+			left_n_cut = len(cx[cx<plot_xmin])
+			right_n_cut = len(cx[cx<plot_xmax])
+			n_cut = n[left_n_cut:right_n_cut]        
+			# y_val_res = y_val_res * np.sum(n_cut) * dx[0]
+			y_val_res = y_val_res / integral_cut * sum(n_cut) * dx[0]
+
+			res = (y_val_res-n)/np.sqrt(n+1)
+
+			chi2 = np.sum(np.power((y_val_res-n) / np.sqrt(n+1), 2))
+
+			# fig2, ax2 = plt.subplots(nrows=1, ncols=1, figsize=figsize)
+			ax2.errorbar(cx - tof_zero, res, fmt='o', ms = 1, color='black', label=f"Chi2={chi2:.1f}")
+			# ax2.text(0.1,0.1, f"Chi2={chi2}")
+			ax2.set_ylim(np.min(res[left_n_cut:right_n_cut])*1.1, np.max(res[left_n_cut:right_n_cut])*1.1)
+			ax2.axhline(0, color='black')
+
+			ins = ax2.inset_axes([0.8,0.7,0.15,0.25])
+			ins.hist(res[left_n_cut:right_n_cut], bins=20, color='grey', edgecolor='black', linewidth=1)
+
+
 
 		# Plot 'carpet'
 		if carpet:
@@ -735,6 +776,16 @@ class FitMethods(TOFPlot):
 			ax.get_xaxis().get_major_formatter().set_scientific(False)
 		ax.set_ylabel(f'Counts per bin', fontsize=fs_ylabel)
 
+		# second subplot if available
+		if residuals:
+			# ax.set_xlabel(f'', fontsize=fs_xlabel)
+			ax2.tick_params(axis='both', which='major', labelsize=fs_ticks, top=True)
+			ax2.set_xlabel(f'Time-of-Flight (ns)', fontsize=fs_xlabel)
+			ax2.get_xaxis().get_major_formatter().set_useOffset(False)
+			ax2.get_xaxis().get_major_formatter().set_scientific(False)
+			ax2.set_ylabel(f'Residuals', fontsize=fs_ylabel)
+
+
         # Check if there are lines passed and plot them
 		if len(self.vlines) != 0:
 			#
@@ -747,7 +798,7 @@ class FitMethods(TOFPlot):
 
 		# Format Legend
 		if legend:
-			plt.legend(fontsize=fs_legend)
+			plt.legend(fontsize=fs_legend, frameon=False, loc='lower right')
 
 		# Print preliminary on top
 		if prelim:
@@ -756,6 +807,10 @@ class FitMethods(TOFPlot):
 				ha='center', va='center', rotation=30)
 		if not external:
 			plt.tight_layout()
+
+		if residuals:
+			plt.subplots_adjust(wspace=0, hspace=0)
+
 
 		# Save plot
 		if file_out != False:
@@ -1418,36 +1473,36 @@ class hyperEmg(FitMethods):
 			pdf_name = f"state_{j}-{i}n"
 		else:
 			pdf_name = f"state_{j}-{i}p"
-		print(f'--> Component: {pdf_name}')
+		# print(f'--> Component: {pdf_name}')
 		
 		# build function
 		funct = self.function_string(c0='@0', c1='@1', c2='@2', c3='@3', R='1',pol=pol)
-		print(f'--> Function String: {funct}')
+		# print(f'--> Function String: {funct}')
 		
 		# Build RooArgList iteratively depending on which parameters are fixed
 		listofRooArgs = RooArgList()
 		listofRooArgs.add(self.RooRealVar_dict['x'])
-		print("--> Add RooArg: 'x'")
+		# print("--> Add RooArg: 'x'")
 		# Add gaussian center
 		mu = self.states[j]["peak"]
 		listofRooArgs.add(self.RooRealVar_dict[mu])
-		print(f"--> Add RooArg: '{mu}'")
+		# print(f"--> Add RooArg: '{mu}'")
 		#
 		listofRooArgs.add(self.RooRealVar_dict['sigma'])
-		print(f"--> Add RooArg: 'sigma'")
+		# print(f"--> Add RooArg: 'sigma'")
 		if pol == '+': # negative component has +  
 			tau = f"ntau{i}"
 			listofRooArgs.add(self.RooRealVar_dict[f"ntau{i}"])
 		else: # positive component has - 
 			tau = f"ptau{i}"
 			listofRooArgs.add(self.RooRealVar_dict[f"ptau{i}"])
-		print(f"--> Add RooArg: '{tau}'")
+		# print(f"--> Add RooArg: '{tau}'")
 
 		state = 'mu0'
 		if self.states[j]["state"] != 'gs':
 			E = self.states[j]["peak"]+"-"+self.states[j]["state"]
 			listofRooArgs.add(self.RooRealVar_dict[E])
-			print(f"--> Add RooArg: '{E}'")
+			# print(f"--> Add RooArg: '{E}'")
 		#
 			state = E
 
@@ -1521,7 +1576,7 @@ class hyperEmg(FitMethods):
 
 		for d in range(self.dimensions[0]+self.dimensions[1]-1): 
 			var_name = f"contrib{d}"
-			print(f"--> Add RooArg: 'contrib{d}'")
+			# print(f"--> Add RooArg: 'contrib{d}'")
 			self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
 
 		# Build one PDF per component, consisting of contributions of different exponetially modified gaussian distributions
@@ -1529,35 +1584,35 @@ class hyperEmg(FitMethods):
 			pdf_name = f"comp{j}"
 			# Start by building the PDF function string
 			funct = self.build_function_string(dimensions=self.dimensions, params=self.params, state = self.states[j])
-			print(f'--> Function String: {funct}')
+			# print(f'--> Function String: {funct}')
 			# Build RooArgList iteratively depending on which parameters are fixed
 			listofRooArgs = RooArgList()
 			listofRooArgs.add(self.RooRealVar_dict['x'])
-			print("--> Add RooArg: 'x'")
+			# print("--> Add RooArg: 'x'")
 			# Add gaussian center
 			mu = self.states[j]["peak"]
 			listofRooArgs.add(self.RooRealVar_dict[mu])
-			print(f"--> Add RooArg: '{mu}'")
+			# print(f"--> Add RooArg: '{mu}'")
 			#
 			listofRooArgs.add(self.RooRealVar_dict['sigma'])
-			print(f"--> Add RooArg: 'sigma'")
+			# print(f"--> Add RooArg: 'sigma'")
 			# 
 			contrib_idx = 0
 			for i in range(self.dimensions[0]):
 				tau = f"ntau{i}"
 				listofRooArgs.add(self.RooRealVar_dict[f"ntau{i}"])
-				print(f"--> Add RooArg: '{tau}'")
+				# print(f"--> Add RooArg: '{tau}'")
 				if self.dimensions[0]+self.dimensions[1] != 1 and contrib_idx < self.dimensions[0]+self.dimensions[1] - 1:
 					listofRooArgs.add(self.RooRealVar_dict[f"contrib{contrib_idx}"])
-					print(f"--> Add RooArg: 'contrib{contrib_idx}'")
+					# print(f"--> Add RooArg: 'contrib{contrib_idx}'")
 					contrib_idx += 1
 			for i in range(self.dimensions[1]):
 				tau = f"ptau{i}"
 				listofRooArgs.add(self.RooRealVar_dict[f"ptau{i}"])
-				print(f"--> Add RooArg: '{tau}'")
+				# print(f"--> Add RooArg: '{tau}'")
 				if self.dimensions[0]+self.dimensions[1] != 1 and contrib_idx < self.dimensions[0]+self.dimensions[1] - 1:
 					listofRooArgs.add(self.RooRealVar_dict[f"contrib{contrib_idx}"])
-					print(f"--> Add RooArg: 'contrib{contrib_idx}'")
+					# print(f"--> Add RooArg: 'contrib{contrib_idx}'")
 					contrib_idx += 1
 			# Reset contrib_idx counter of contribution ratios are to be kept the same for multiple peaks
 			if self.simultaneous:
@@ -1567,7 +1622,7 @@ class hyperEmg(FitMethods):
 			if self.states[j]["state"] != 'gs':
 				E = self.states[j]["peak"]+"-"+self.states[j]["state"]
 				listofRooArgs.add(self.RooRealVar_dict[E])
-				print(f"--> Add RooArg: '{E}'")
+				# print(f"--> Add RooArg: '{E}'")
 			#
 				state = E
 
@@ -1576,7 +1631,7 @@ class hyperEmg(FitMethods):
 		# Build component ratios
 			if j < (self.n_comps-1): 
 				var_name = f"ratio{j}"
-				print(f"--> Add RooArg: 'ratio{j}'")
+				# print(f"--> Add RooArg: 'ratio{j}'")
 				self.RooRealVar_dict[var_name] = RooRealVar(var_name, var_name, self.limits[var_name][0], self.limits[var_name][1], self.limits[var_name][2])
 			#
 			j += 1
@@ -1606,7 +1661,7 @@ class hyperEmg(FitMethods):
 
 			for d in range(self.dimensions[0]+self.dimensions[1]-1):
 				key = f'contrib{d}'
-				print(f"--> Add RooArg: 'contrib{d}'")
+				# print(f"--> Add RooArg: 'contrib{d}'")
 				EMG_ratios.add(self.RooRealVar_dict[key])
 
 			for emgs in self.EMGs_dict:
@@ -1635,7 +1690,7 @@ class hyperEmg(FitMethods):
 
 		string = f""
 
-		print(self.states)
+		# print(self.states)
 
 		for i in np.arange(1,len(self.states)+1,1):
 
@@ -1657,7 +1712,7 @@ class hyperEmg(FitMethods):
 				
 			string += f"{contrib}*({hyperEMG_string})+"
 
-		print(string[:-1])
+		# print(string[:-1])
 
 		return string[:-1]
 
