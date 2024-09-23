@@ -169,16 +169,6 @@ class MCS6Lst(ProcessorBase):
 			index_low_sweep = nb_bits-1-int(sweep_counter[0])
 			sweep = int(bit_word[index_high_sweep:index_low_sweep+1],2)
 
-		if bit_word != "000000000000000000000000000000000000000000000000" and verbose>2:
-			print(f"bit_word: {bit_word}")
-			print(f"index_data_lost_bit: {fifo}")
-			print(f"index_high_tag: {index_high_tag}")
-			print(f"index_low_tag: {index_low_tag}")
-			print(f"tag: {tag}")
-			print(f"index_high_sweep: {index_high_sweep}")
-			print(f"index_low_sweep: {index_low_sweep}")
-			print(f"sweep: {sweep}")
-
 		#convert time of flight
 		index_high_tof = max(index_low_sweep,index_low_tag,index_data_lost_bit)+1
 		index_low_tof = index_high_tof+time_bits
@@ -187,6 +177,17 @@ class MCS6Lst(ProcessorBase):
 		#these are always there no matter the format
 		channel = int(bit_word[index_low_tof+1:],2)
 		edge = int(bit_word[index_low_tof],2)
+
+		if bit_word != "000000000000000000000000000000000000000000000000" and verbose>3 and tof != 0:
+			print(f"bit_word: {bit_word}")
+			print(f"index_data_lost_bit: {fifo}")
+			print(f"index_high_tag: {index_high_tag}")
+			print(f"index_low_tag: {index_low_tag}")
+			print(f"tag: {tag}")
+			print(f"index_high_sweep: {index_high_sweep}")
+			print(f"index_low_sweep: {index_low_sweep}")
+			print(f"sweep: {sweep}")
+			print(f"tof: {tof}")
 
 		# if tof != 0:
 		#     print(tof, sweep-1, channel, edge, tag, fifo)
@@ -211,7 +212,8 @@ class MCS6Lst(ProcessorBase):
 		time_bits = int(self.conversion_df.loc[time_patch.decode('ascii'),'Time_Bits'])
 		max_sweep_length = self.conversion_df.loc[time_patch.decode('ascii'),'Max_Sweep_Length']
 
-		steps = len(binary[binary.tell():])/data_length
+		steps = len(binary[binary.tell():])/data_length # seems like that the amount of data in the binary can not be calculated properly, will use a workaround to get rid of excess zeros in dataframe
+
 
 		if verbose>1:
 			print(f"Data length: {data_length}\nN bits: {nb_bits}\nData lost bit: {data_lost_bit}\n\
@@ -237,6 +239,8 @@ class MCS6Lst(ProcessorBase):
 			byteword = binary.read(data_length)
 			tof, sweep, channel, edge, tag, fifo = self.convert_bytes(byteword,nb_bits,
 				data_lost_bit, tag_bits, sweep_counter, time_bits, verbose=verbose)
+			# if tof == 0:
+			# 	print(tof, sweep, channel, edge, tag, fifo)
 			# Check whether overflow happened (for example old_sweep = 127, new sweep is 0)
 			# Only do for non-zero events:
 			if tof != 0: 
@@ -248,9 +252,10 @@ class MCS6Lst(ProcessorBase):
 				# Add overflow to the sweep number (in case sweep has 7bit int -> 2**7=128)
 				sweep += sweep_counter_overflow*(2**(sweep_counter[1]-sweep_counter[0]+1))
 				if verbose>2: print(f"sweep: {sweep}")
-			#
-			if channel != 0 :#means for real data
-				converted_data[i] = [tof, sweep, channel, edge, tag, fifo]
+				#
+				if channel != 0:#means for real data
+					# print(tof, sweep, channel, edge, tag, fifo)
+					converted_data[i] = [tof, sweep, channel, edge, tag, fifo]
 		binary.close()
 		return converted_data
 
@@ -291,9 +296,11 @@ class MCS6Lst(ProcessorBase):
 		mapped_file.readline()
 
 		if verbose>1:
-			print(f"pos_type_from: {pos_type_from}\npos_data_from: {pos_data_from}\ntime_patch: {time_patch}")
+			print(f"cmline0: {file_date}\npos_type_from: {pos_type_from}\npos_data_from: {pos_data_from}\ntime_patch: {time_patch}")
 
 		return mapped_file, time_patch
+
+
 
 	def process(self,file_array,to_csv = False, full_info=False, verbose=0):
 		"""
@@ -318,19 +325,21 @@ class MCS6Lst(ProcessorBase):
 					fmt = '%i,%i,%i,%i,%f,%f', header = header_res)
 				else:
 					# build pandas dataframe
-					converted_data = pd.DataFrame(self.decode_binary(binary,time_patch,verbose)[:, [0,1]], columns=['tof', 'sweep'])     # saves only tof and sweep info
+					decoded_data = self.decode_binary(binary,time_patch,verbose)
+					converted_data = pd.DataFrame(decoded_data[:, [0,1]], columns=['tof', 'sweep'])     # saves only tof and sweep info
 					converted_data.tof = converted_data.tof/10  # convert 100ps intrinsic binning into nanoseconds 
+
 					# drop zeros (not clear why sometimes a lot of zero-tof zero-sweep lines are written)
-					# converted_data = converted_data[(converted_data.sweep > 0.9)&(converted_data.tof > 0.9)&(converted_data.tof < 1e12)] # test for > 0.9 as most empty sweeps are 0, but some are 1e-312 due to numerical problems in the decoding
-					# # Cast sweep numbers into integers
-					# try:
-					# 	converted_data.sweep = converted_data.sweep.astype('int64')  # sweep is only int
-					# except pd.errors.IntCastingNaNError:
-					# 	print("(MCS6Lst.process) IntCastingNaNError: error casting sweep numbers into Integers.")
-					# 	print(converted_data.sweep)
-					# # filter for a second time
-					# converted_data = converted_data[(converted_data.sweep > 0.9)&(converted_data.tof > 0.9)&(converted_data.tof < 1e12)] # test for > 0.9 as most empty sweeps are 0, but some are 1e-312 due to numerical problems in the decoding
-					# Write data to csv. To avoid numerical issues with writing floats, only write %.3f digits
+					converted_data = converted_data[(converted_data.sweep > 0.9)&(converted_data.tof > 0.9)&(converted_data.tof < 1e12)] # test for > 0.9 as most empty sweeps are 0, but some are 1e-312 due to numerical problems in the decoding
+					# Cast sweep numbers into integers
+					try:
+						converted_data.sweep = converted_data.sweep.astype('int64')  # sweep is only int
+					except pd.errors.IntCastingNaNError:
+						print("(MCS6Lst.process) IntCastingNaNError: error casting sweep numbers into Integers.")
+						print(converted_data.sweep)
+					# filter for a second time
+					converted_data = converted_data[(converted_data.sweep > 0.9)&(converted_data.tof > 0.9)&(converted_data.tof < 1e12)] # test for > 0.9 as most empty sweeps are 0, but some are 1e-312 due to numerical problems in the decoding
+					#Write data to csv. To avoid numerical issues with writing floats, only write %.3f digits
 					if to_csv:
 						converted_data.to_csv('{}/{}.csv'.format(os.path.split(filename)[0],os.path.splitext(os.path.basename(filename))[0]), index=False, float_format='%.3f')
 				print('File {} loaded successfully!'.format(os.path.splitext(os.path.basename(filename))[0]))
