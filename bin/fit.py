@@ -472,7 +472,8 @@ class FitMethods(TOFPlot):
 	def plot(self, bins = 1, log=True, focus=False, xrange_mod = [800,3000], from_file = False, file_out=False, contribs = False,
 		silent=False, centroids=False, components=False, carpet=False, residuals = False, legend=True, style='hist', lw_fit = 2,
 		fs_legend = 14, fs_xlabel = 20, fs_ylabel = 20, fs_ticks = 15, figsize = (8.6, 6), add_vlines = [], 
-		prelim=False, prelimfs = 30, pre_bin_size = 0.8, fitalpha = 0.5, histalpha = 0.75, histlw = 2.0, fitzorder = 2, histzorder = 1,
+		prelim=False, prelimfs = 30, pre_bin_size = 0.8, fitalpha = 0.5, fitcolor='r',
+		histalpha = 0.75, histlw = 2.0, fitzorder = 2, histzorder = 1,
 		tofoffset = True,
 		external = False, fig = False, ax = False,
 		):
@@ -559,6 +560,8 @@ class FitMethods(TOFPlot):
 			plot_xmin = self.xmin
 			plot_xmax = self.xmax
 
+		print("Fit limits", plot_xmin, plot_xmax)
+
 		# zero the tof if True
 		tof_zero = self.numerical_peak if tofoffset else 0
 
@@ -586,7 +589,7 @@ class FitMethods(TOFPlot):
 
 		# Plot fit	
 		ax.plot(xm - tof_zero, 
-				y_val, label=f"{self.fit_func_name}({self.dimensions[0]},{self.dimensions[1]})", c='r', linewidth=lw_fit, alpha=fitalpha,
+				y_val, label=f"{self.fit_func_name}({self.dimensions[0]},{self.dimensions[1]})", c=fitcolor, linewidth=lw_fit, alpha=fitalpha,
 				zorder = fitzorder,
 		)
 
@@ -594,31 +597,40 @@ class FitMethods(TOFPlot):
 
 		# Plot residuals
 		if residuals:
+
+			left_n_cut = len(cx[cx<self.xmin])
+			right_n_cut = len(cx[cx<self.xmax])
+			n_cut = n[left_n_cut:right_n_cut]
+			cx_cut = cx[left_n_cut:right_n_cut] 
+
 			# get fit values at ToF bin centers
 			y_val_res = []
-			for i in cx:
-				self.RooRealVar_dict['x'].setVal(i)
-				y_val_res.append(self.this_pdf.getVal(ROOT.RooArgSet(self.RooRealVar_dict['x'])))
+			if not from_file:
+				for i in cx_cut:
+					self.RooRealVar_dict['x'].setVal(i)
+					y_val_res.append(self.this_pdf.getVal(ROOT.RooArgSet(self.RooRealVar_dict['x'])))
+			else:
+				y_val_res = y_val[left_n_cut:right_n_cut]
 
+			integral_cut_res = sum(y_val_res) * np.diff(xm)[0]
 
-			left_n_cut = len(cx[cx<plot_xmin])
-			right_n_cut = len(cx[cx<plot_xmax])
-			n_cut = n[left_n_cut:right_n_cut]        
-			# y_val_res = y_val_res * np.sum(n_cut) * dx[0]
+			print(integral_cut_res)
+
 			y_val_res = y_val_res / integral_cut * sum(n_cut) * dx[0]
+			res = (y_val_res-n_cut)/np.sqrt(n_cut+1)
 
-			res = (y_val_res-n)/np.sqrt(n+1)
-
-			chi2 = np.sum(np.power((y_val_res-n) / np.sqrt(n+1), 2))
-
+			nfitparams = len(self.RooRealVar_dict)-1 # all variables in this dict minux "x"
+			chi2 = np.sum(np.power((y_val_res-n_cut), 2)/ (n_cut+1))
+			red_chi2 = np.sum(np.power((y_val_res-n_cut), 2)/ (n_cut+1)) / nfitparams
+ 
 			# fig2, ax2 = plt.subplots(nrows=1, ncols=1, figsize=figsize)
-			ax2.errorbar(cx - tof_zero, res, fmt='o', ms = 1, color='black', label=f"Chi2={chi2:.1f}")
+			ax2.errorbar(cx_cut - tof_zero, res, fmt='o', ms = 1, color='black', label=r"red.$\chi^2$"+f"={red_chi2:.1f}")
 			# ax2.text(0.1,0.1, f"Chi2={chi2}")
-			ax2.set_ylim(np.min(res[left_n_cut:right_n_cut])*1.1, np.max(res[left_n_cut:right_n_cut])*1.1)
+			ax2.set_ylim(np.min(res)*1.1, np.max(res)*1.1)
 			ax2.axhline(0, color='black')
 
 			ins = ax2.inset_axes([0.8,0.7,0.15,0.25])
-			ins.hist(res[left_n_cut:right_n_cut], bins=20, color='grey', edgecolor='black', linewidth=1)
+			ins.hist(res, bins=20, color='grey', edgecolor='black', linewidth=1)
 
 
 
@@ -753,16 +765,11 @@ class FitMethods(TOFPlot):
 			ax.set_yscale("log")
 			ax.set_ylim(0.2,2*ylims[1])
 
-		# Zoom in on found peaks if peaks were searched
-		if self.peaks is not None:
-			if self.peaks.n_peaks != 0:
-				ax.set_xlim(self.peaks.earliest_left_base - xrange_mod[0] - tof_zero, 
-						 self.peaks.latest_right_base + xrange_mod[1] - tof_zero)
-				if focus:
-					ax.set_xlim(self.xmin-tof_zero, self.xmax-tof_zero)
-		if self.peaks is None:
-			print(self.xmin-tof_zero- xrange_mod[0])
-			ax.set_xlim(self.xmin-tof_zero- xrange_mod[0], self.xmax-tof_zero+ xrange_mod[1])
+		# Zoom in if focus is on
+		if focus:
+			ax.set_xlim(self.xmin-tof_zero, self.xmax-tof_zero)
+		else:
+			ax.set_xlim(xrange_mod[0], xrange_mod[1])
 
 		# Set ticks size 
 		ax.tick_params(axis='both', which='major', labelsize=fs_ticks)
@@ -780,9 +787,12 @@ class FitMethods(TOFPlot):
 		if residuals:
 			# ax.set_xlabel(f'', fontsize=fs_xlabel)
 			ax2.tick_params(axis='both', which='major', labelsize=fs_ticks, top=True)
-			ax2.set_xlabel(f'Time-of-Flight (ns)', fontsize=fs_xlabel)
-			ax2.get_xaxis().get_major_formatter().set_useOffset(False)
-			ax2.get_xaxis().get_major_formatter().set_scientific(False)
+			if tofoffset:
+				ax2.set_xlabel(f'Time-of-Flight (ns) - {tof_zero:.1f} ns', fontsize=fs_xlabel)
+			else:
+				ax2.set_xlabel(f'Time-of-Flight (ns)', fontsize=fs_xlabel)
+				ax2.get_xaxis().get_major_formatter().set_useOffset(False)
+				ax2.get_xaxis().get_major_formatter().set_scientific(False)
 			ax2.set_ylabel(f'Residuals', fontsize=fs_ylabel)
 
 
