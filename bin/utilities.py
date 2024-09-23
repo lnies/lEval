@@ -917,12 +917,16 @@ class MRToFUtils(NUBASE):
         #
         self.tof_calib_loaded = True
 
-    def __calc_tof_outside_device(self, m, det_loc='EMP2h'):
+    def calc_tof_outside_device(self, m, fraction=0.75):
         """
         Calculates the relevant ToFs outside the MR-ToF MS
+        - fraction: relative flight distance from source to drift tube and from drift tube to detector
+            -- for EMP2h at ISOLTRAP this is 0.75 to center of drift tube, and 1-0.75=0.25 from center of drift tube to detector
+            -- For EMP3h at ISOLTRAP this is ...
+            -- For MT downstream of MIRACLS this is 0.87
         """
-        F1 = (self.a0 * np.sqrt(float(m) - float(self.e_in_u)) + self.b0) * 3/4  # Flight time into center of isep cavity, aka pulse down delay. Scaling factor 3/4 depends on location of detector from which total flight time outside of device is determined.
-        MCP = 1/3*F1 # Flight time from center of isep cavity to detector, changes between EMP2h and EMP3h
+        F1 = (self.a0 * np.sqrt(float(m) - float(self.e_in_u)) + self.b0) * fraction  # Flight time into center of isep cavity, aka pulse down delay. Scaling factor 3/4 depends on location of detector from which total flight time outside of device is determined.
+        MCP = (self.a0 * np.sqrt(float(m) - float(self.e_in_u)) + self.b0) * (1-fraction) # Flight time from center of isep cavity to detector, changes between EMP2h and EMP3h
         return F1, MCP
 
     def calc_ToF(self, m, nrevs = 1000, a0=None, b0=None, a1=None, b1=None, revsN2=None):
@@ -938,7 +942,7 @@ class MRToFUtils(NUBASE):
             print("(MRToFUtils:calc_ToF)ToF Calibration file not loaded!")
             return False
         #
-        F1, MCP = self.__calc_tof_outside_device(m)
+        F1, MCP = self.calc_tof_outside_device(m)
         if nrevs != 0:
             TG1 = ((self.a1 * np.sqrt(m-self.e_in_u) + self.b1) - F1 - MCP ) / self.revN2 * int(nrevs)
             # TG1 = ((self.a1 * np.sqrt(m - self.e_in_u) + self.b1) - F1 - MCP ) / self.revN2 * int(nrevs) 
@@ -951,7 +955,7 @@ class MRToFUtils(NUBASE):
         """
         Receives ToF of a known mass at nrevs and recalculates the a1 parameter
         """
-        # F1, MCP = self.__calc_tof_outside_device(m)
+        # F1, MCP = self.calc_tof_outside_device(m)
         # TG1 = tof - F1 - MCP
         # self.a1 = ((TG1 * int(self.revN2) / int(nrevs)) + F1 + MCP - self.b1) / np.sqrt(m) / 1e3 # calculate a1 from absolute ToF and convert to micro-seconds 
         if nrevs != 0:
@@ -1300,7 +1304,7 @@ class MRToFIsotope(MRToFUtils):
 # - Energy Difference ISOLTRAP-{self.nubase_version}: {abs(self.exc_energy)-abs(self.exc_energy_NUBASE):.1f}keV\n\
 ######################")
     
-    def store_result(self, results_file, overwrite = False, tags=""):
+    def store_result(self, results_file, overwrite = False, tags="", return_dict = False):
         '''
         Appends results from calc_mass in a results file. Creates new file if file does not exist 
         Parameters:
@@ -1385,6 +1389,9 @@ class MRToFIsotope(MRToFUtils):
                 df = pd.concat([df, df2], ignore_index=True)
         #
         df.to_csv(results_file, index=False)
+
+        if return_dict:
+            return d
 
 class TOFPlot():
     """
@@ -1724,6 +1731,16 @@ class TOFPlot():
             # self.__add_isobar_line(vline, f'n={n}')
         return
 
+    def add_A(self, A, nrevs):
+        """
+        Add mass number A to plot
+        """
+        mass = A * self.utils.get_value('1H', value='mass', state='gs')
+        vline = self.utils.calc_ToF(mass, nrevs)*1e3
+        self.vlines.append(vline)
+        self.vlines_text.append(f'A={A}')
+        # self.__add_isobar_line(vline, f'n={n}')
+
 class Peaks(TOFPlot):
     """ 
     Wrapper class for finding peaks in an MR-ToF MS spectrum
@@ -1748,7 +1765,7 @@ class Peaks(TOFPlot):
         TOFPlot.__init__(self, df_file)
 
     def find_peaks(self, bins=10, peak_threshold = None, peak_min_distance = 250, peak_min_height = 1, peak_width_inbins = 20, 
-                   peak_prominence = 50, peak_wlen = None):
+        peak_prominence = 50, peak_wlen = None):
         """  
         Arguments:
             - bins: Rebinning for faster peak finding
@@ -1757,6 +1774,9 @@ class Peaks(TOFPlot):
             - ...
         """
         #
+        # If prominence is not None, divide by bins
+        if peak_prominence is not None:
+            peak_prominence /= bins
         self.bins = bins
         # faster binning for projections than histograms -> necessary in order to automatically find peaks
         x_proj_for_pfind = self.file.tof.value_counts(bins=self.get_binning(self.bins)).sort_index()
@@ -1767,7 +1787,7 @@ class Peaks(TOFPlot):
                                              distance=peak_min_distance/bins, # dinstance in samples, not in value! changes when rebinned! 
                                              height=peak_min_height*bins,
                                              width=peak_width_inbins/bins,
-                                             prominence=peak_prominence/bins,
+                                             prominence=peak_prominence,
                                              wlen=peak_wlen)
         # Calculate some additional meta data for the found peaks
         self.n_peaks = len(self.x_proj_peaks)
@@ -1786,21 +1806,24 @@ class Peaks(TOFPlot):
             right = x_proj_for_pfind.index.mid[self.peaks_info['right_bases'][i]]
             self.left_bases.append(left)
             self.right_bases.append(right)
+
+            peak_pos = x_proj_for_pfind.index.mid[self.x_proj_peaks[i]]
+
             #calculate the median (more accurate due to asym. tails) of the data in the peak ranges
             #better value for the actual peak center than the simple highest point in peak
-            peak_pos = self.file.tof[(self.file.tof < right) &
-                                  (self.file.tof > left)].median()
+            # peak_pos = self.file.tof[(self.file.tof < right) &
+            #                       (self.file.tof > left)].median()
             peak_std = self.file.tof[(self.file.tof < right) &
                                   (self.file.tof > left)].std()
-            # estimate the mean and sigma from a Gaussian with exponential tail (accounting for asym. peaks)
-            try: 
-                peak_fit = stats.exponnorm.fit(file_df.tof[(file_df.tof < peak_pos+peak_std) &
-                                                           (file_df.tof > peak_pos-peak_std)],
-                                               loc=peak_pos)
-                # update peak position if a fit was possible
-                peak_pos = peak_fit[1]
-            except:
-                pass
+            # # estimate the mean and sigma from a Gaussian with exponential tail (accounting for asym. peaks)
+            # try: 
+            #     peak_fit = stats.exponnorm.fit(file_df.tof[(file_df.tof < peak_pos+peak_std) &
+            #                                                (file_df.tof > peak_pos-peak_std)],
+            #                                    loc=peak_pos)
+            #     # update peak position if a fit was possible
+            #     peak_pos = peak_fit[1]
+            # except:
+            #     pass
             self.pos.append(peak_pos)
             self.std.append(peak_std)
             # assign earliest and latest bases
@@ -1810,7 +1833,7 @@ class Peaks(TOFPlot):
             if (right > self.latest_right_base and not math.isnan(right) and not math.isnan(peak_std)):
                 self.latest_right_base = right
                 self.latest_peak_idx = i 
-                
+
     def plot(self, bins = 10, lines = True, focus=False, log=False, silent = False, 
             fs_labels = 20, fs_ticks = 15, figsize = (8.6,6), xlim = None, ylim = None, 
             xrange_mod = [800,3000], legend = False,
