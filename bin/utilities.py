@@ -287,7 +287,24 @@ class NUBASE():
                 print(f"(error in NUBASE.__init__): Wrong version parsed. Only 'ame20' available.")
         except(Exception) as err: 
             print(f"(error in NUBASE.__init__): Could not load NUBASE: {err}.")
-   
+
+    def replace_mass(self, isotope, me, me_err=None, apply_mass_filters=False):
+        """
+        Replaces mass excess and mass excess err in ame dataframe
+        """
+        # find index
+        index = self.ame[self.ame.Aelsymbl==isotope].index
+        N = self.ame[self.ame.Aelsymbl==isotope].N
+        Z = self.ame[self.ame.Aelsymbl==isotope].Z
+        # replace masses
+        self.ame.iloc[index, 9] = me
+        self.ame.iloc[index, 24] = me - N * self.get_value("1n", 'mass_excess') - Z * self.get_value("1H", 'mass_excess')
+        if me_err is not None:
+            self.ame.iloc[index, 10] = me_err
+            self.ame.iloc[index, 25] = me_err 
+        if apply_mass_filters:
+            self.apply_mass_filters()
+
     def apply_mass_filters(self):
         """
         Function to apply mass filters to dataframe from self.ame
@@ -576,6 +593,7 @@ class FitToDict:
         self.line_nb = 0
         self.res_table_line = 0
         self.fit_val_line = 0
+        self.res_correl_line = 0
         self.file_path = file_path
         # Read file
         self.fit = self.__read(verbose)
@@ -612,6 +630,8 @@ class FitToDict:
                                     self.res_table_line = self.line_nb
                                 if section == 'FIT-VALUES':
                                     self.fit_val_line = self.line_nb
+                                if section == 'CORRELATION-MATRIX':
+                                    self.res_correl_line = self.line_nb
                         else:
                             # split on first the equal sign
                             (key, val) = line.split('=', 1)
@@ -639,12 +659,24 @@ class FitToDict:
         #
         if 'RESULTS-TABLE' in self.fit:
             if 'FIT-VALUES' in self.fit:
-                n_footer = self.line_nb - self.fit_val_line + 1    
+                if 'CORRELATION-MATRIX' in self.fit:
+                    n_footer = self.line_nb - self.res_correl_line + 1
+                else:
+                    n_footer = self.line_nb - self.fit_val_line + 1
             else:
                 n_footer = 0 
             if verbose > 0: print(f"res_table_line: {self.res_table_line}\nn_footer: {n_footer}")  
             self.fit['RESULTS-TABLE'] = pd.read_csv(self.file_path, header=self.res_table_line, delimiter=' ', 
                                                     skipfooter=n_footer, engine='python')
+        if 'CORRELATION-MATRIX' in self.fit:
+            if 'FIT-VALUES' in self.fit:
+                n_footer = self.line_nb - self.fit_val_line + 1
+            else:
+                n_footer = 0 
+            if verbose > 0: print(f"corr_table_line: {self.res_table_line}\nn_footer: {n_footer}")  
+            self.fit['CORRELATION-MATRIX'] = pd.read_csv(self.file_path, header=self.res_correl_line, delimiter=' ', 
+                                                    skipfooter=n_footer, engine='python')
+
         if 'FIT-VALUES' in self.fit: 
             if verbose > 0: print(f"fit_val_line: {self.fit_val_line}")  
             self.fit['FIT-VALUES'] = pd.read_csv(self.file_path, header=self.fit_val_line, delimiter=' ')
@@ -1239,7 +1271,7 @@ class MRToFIsotope(MRToFUtils):
             print(f"######################\n\
 # Result for {self.isotope}:\n\
 ######################\n\
-# - C_ToF: {self.C_tof:.8f}({self.C_tof_err:.8f})\n\
+# - C_ToF: {self.C_tof:.9f}({self.C_tof_err:.9f})\n\
 # - Mass Excess ISOLTRAP: {self.me_isotope:.1f}({self.me_isotope_err:.1f})keV\n\
 # - Mass Excess {self.ame_version}: {(self.m_isotope_AME-self.A)*self.u:.1f}({self.m_isotope_AME_err:.1f})keV\n\
 # - Mass Difference ISOLTRAP-{self.ame_version}: {abs(self.me_isotope)-abs((self.m_isotope_AME-self.A)*self.u):.1f}keV\n\
