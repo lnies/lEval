@@ -25,7 +25,7 @@ from utilities import FitToDict, custom_colors
 def simple_error_plt(y, y_err, x='', x_labels='', \
 					 label = ["ISOLTRAP"], x_label='', y_label=[''], title='', \
 					 ref_value=None, ref_err=None, ref_legend_label='AME20 Error', ref_axis=0,
-					 with_lines = False, h_lines = [],
+					 with_lines = False, h_lines = [], h_lines_err = [],
 					 x_share = False, figsize = (4.5*1.5, 4.5),
 					 ):
 	'''
@@ -39,6 +39,7 @@ def simple_error_plt(y, y_err, x='', x_labels='', \
 	- y_label: y-axis labeling
 	- with_lines: if True, connects scatter data points with lines
 	- h_lines: array-like. Draws in hlines
+	- h_lines_err: array like. Draws in error band for hlines
 	- title: plot title
 	'''
 	colors = custom_colors()
@@ -133,8 +134,10 @@ def simple_error_plt(y, y_err, x='', x_labels='', \
 
 
 	if len(h_lines) != 0:
-		for line in h_lines:
-			ax.axhline(line)
+		for line, err in zip(h_lines, h_lines_err):
+			ax.axhline(line, zorder = 2, color='black')
+			ax.axhspan(line-err, line+err, color='grey', zorder = 1)
+
 
 
 
