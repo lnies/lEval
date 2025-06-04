@@ -1721,7 +1721,16 @@ class TOFPlot():
                     vline = self.utils.calc_ToF((self.utils.get_value(isobar.split("-")[0], value='mass')+self.utils.get_value(isobar.split("-")[0], value='excitation_energy', state=state)/self.utils.u)/q, nrevs)*1e3
                 else:
                     vline = self.utils.calc_ToF(self.utils.get_value(isobar, value='mass')/q, nrevs)*1e3
-                self.vlines_text.append(f'{isobar}{q}+, tof={vline:.0f}')
+                #
+                # Iterate through every isotope in the chain of isotopes passed (to handle molecules)
+                split_string = re.split("(\\d+)",isobar)
+                vline_text = ''
+                for i in range(1, len(split_string)-1, 2):
+                    A = int(split_string[i])
+                    X = split_string[i+1]
+                    vline_text+=f'^{{{A}}}\mathrm{{{X}}}'
+                chargestate=f"{q}+"
+                self.vlines_text.append(f'${vline_text}^{{{chargestate}}}$, tof={vline:.0f}')
                 self.vlines.append(vline)
                 # self.__add_isobar_line(vline, isobar)
             return
@@ -1731,28 +1740,38 @@ class TOFPlot():
                 for idx,row in self.utils.ame[self.utils.ame.A==A].iterrows():
                     vline = self.utils.calc_ToF(self.utils.get_value(f'{A}{row["element"]}', value='mass', state='gs')/q, nrevs)*1e3
                     self.vlines.append(vline)
-                    self.vlines_text.append(f'{A}{row["element"]}{q}+, tof={vline:.0f}')
+                    vline_text=f'^{{{A}}}\mathrm{{{row["element"]}}}'
+                    chargestate=f"{q}+"
+                    self.vlines_text.append(f'${vline_text}^{{{chargestate}}}$, tof={vline:.0f}')
                     # self.__add_isobar_line(vline, f'{A}{row["element"]}')
             else:
                 # Calculate base and molecular mass
                 split_string = re.split("(\\d+)",molecule)
                 mol_A=0
                 mol_mass = 0
+                vline_molecule=""
                 for i in range(1, len(split_string)-1, 2):
                     sub_A = int(split_string[i])
                     sub_X = split_string[i+1]
                     mol_A += sub_A
                     mol_mass += self.utils.get_value(f"{sub_A}{sub_X}", value='mass', state='gs')/q
+                    vline_molecule+=f'^{{{sub_A}}}\mathrm{{{sub_X}}}'
                 # now calculate total mass of molecule
                 for idx,row in self.utils.ame[self.utils.ame.A==int(A-mol_A)].iterrows():
                     
                     mass = self.utils.get_value(f'{int(A-mol_A)}{row["element"]}', value='mass', state='gs')/q 
                     mass += mol_mass
 
+                    chargestate=f"{q}+"
                     #
                     vline = self.utils.calc_ToF(mass, nrevs)*1e3
                     self.vlines.append(vline)
-                    self.vlines_text.append(f'{int(A-mol_A)}{row["element"]}{molecule}{q}+, tof={vline:.0f}')
+                    
+                    vline_text=f'^{{{A-mol_A}}}\mathrm{{{row["element"]}}}'
+
+                    self.vlines_text.append(f'${vline_text}{vline_molecule}^{{{chargestate}}}$, tof={vline:.0f}')
+
+                    # self.vlines_text.append(f'{int(A-mol_A)}{row["element"]}{molecule}{q}+, tof={vline:.0f}')
             return
 
     def add_clusters(self, isotope, nrange, nrevs):
@@ -2012,7 +2031,7 @@ class Peaks(TOFPlot):
     def plot2d(self, x_bins=20, hist2d_x_bins = 20, hist2d_y_bins = 100, y_bins=10, 
                 fs_labels = 20, fs_ticks = 15,
                 focus=-1, log=False, figsize=(12,7),
-                linezorder = 2, lines = True, add_hlines = [],
+                linezorder = 2, lines = True, add_hlines = [], add_vlines = [],
         ):
         """
         Plot 2D Histogram with found peaks.
@@ -2040,7 +2059,8 @@ class Peaks(TOFPlot):
 
 
         # Bottom left: MCS6-like 2d histogram
-        self.create_hist2d(external=True, ax=ax_0, fig=fig, x_bins=hist2d_x_bins, y_bins=hist2d_y_bins)
+        self.create_hist2d(external=True, ax=ax_0, fig=fig, x_bins=hist2d_x_bins, 
+                            y_bins=hist2d_y_bins, add_vlines=add_vlines)
 
         # Top left: x-projection
         self.create_hist1d(external=True, ax=ax_x, fig=fig, style='hist', bins=x_bins, data='tof', log=log)
@@ -2096,7 +2116,7 @@ class Peaks(TOFPlot):
 
 
         ax_y.set_xlabel(f'Cts. / {y_bins} sweeps', fontsize=fs_labels)
-        ax_y.set_ylabel(f'Seep number', fontsize=fs_labels)
+        ax_y.set_ylabel(f'Sweep number', fontsize=fs_labels)
         ax_y.xaxis.set_ticks_position('bottom')
         ax_y.xaxis.set_label_position('bottom')
         ax_y.yaxis.set_label_position('right')
