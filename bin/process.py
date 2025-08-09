@@ -300,19 +300,31 @@ class MCS6Lst(ProcessorBase):
 
 		return mapped_file, time_patch
 
-
-
-	def process(self,file_array,to_csv = False, full_info=False, verbose=0):
+	def process(self,file_array,to_csv = False,full_info=False, overwrite=False, verbose=0):
 		"""
 		Perform the processing of the files 
 		Parameters:
 			- file_array: Array of file-paths
 			- to_csv: if true, saves files under it's file name with .csv extension
 			- full_info: for regular application the channel, edge, tag and fifo info are constant so they don't have to be saved. In that case keep full_info = False
+			- overwrite: if a .csv of the filename already exists, will be overwritten, otherwise not
 			- verbose: verbosity
 		"""
 		self.files = file_array
 		for filename in self.files:
+			# Check if the file is already processed and test if it is to be overwritten
+			csv_filename = filename.rsplit("/", 1)[1].split(".")[0]+".csv"
+			csv_path = filename.rsplit("/", 1)[0]+"/"+csv_filename
+			if os.path.isfile(filename.rsplit("/", 1)[0]+"/"+csv_filename):
+				if overwrite:
+					print(f"(MCS6Lst.process): file already {csv_path} exists, will be overwritten")
+				# if not overwrite, still read in the existing .csv file for other processing
+				else: 
+					print(f"(MCS6Lst.process): file already {csv_path} exists, will be loaded")
+					print('File {} loaded successfully!'.format(os.path.splitext(os.path.basename(filename))[0]))
+					self.df_dict[os.path.splitext(os.path.basename(filename))[0]] = pd.read_csv(csv_path)
+					continue
+			# Process
 			with open(filename,'rb') as listfile:
 
 				binary, time_patch = self.get_time_patch_and_binary(listfile, verbose=verbose)
